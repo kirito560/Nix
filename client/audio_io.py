@@ -1,14 +1,20 @@
 """
-Fuentes de audio del cliente. Ambas entregan tramas PCM16 mono 16 kHz de 20 ms (protocol.BYTES_TRAMA).
+Audio del cliente.
 
+Entrada (tramas PCM16 mono 16 kHz de 20 ms, protocol.BYTES_TRAMA):
   - Microfono: captura con sounddevice (PortAudio). El callback corre en otro hilo; las tramas pasan
     al bucle de asyncio con call_soon_threadsafe.
   - ArchivoWav: lee un WAV (cualquier frecuencia, mono o estéreo, 16 bits) y lo reproduce a ritmo real,
     seguido de silencio para que el VAD cierre la frase. Sirve para probar sin micrófono.
+
+Salida (la voz del personaje, audio.out):
+  - Altavoz: búfer que el callback de sounddevice va vaciando; vaciar() la calla al instante (barge-in).
+  - GrabadorWav: guarda la voz en un WAV (para probar sin altavoces).
 """
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 import wave
 from pathlib import Path
@@ -70,3 +76,65 @@ class ArchivoWav:
             if self.tiempo_real:
                 await asyncio.sleep(max(0.0, inicio + i * MS_TRAMA / 1000 - time.monotonic()))
             yield self.pcm[pos:pos + BYTES_TRAMA]
+
+
+class Altavoz:
+    def __init__(self, dispositivo: Optional[int | str] = None):
+        self.dispositivo = dispositivo
+        self.buf = bytearray()
+        self.lock = threading.Lock()
+        self.stream = None
+        self.sr: Optional[int] = None
+
+    def reproducir(self, sample_rate: int, pcm: bytes) -> None:
+        if self.stream is None or sample_rate != self.sr:
+            self._abrir(sample_rate)
+        with self.lock:
+            self.buf += pcm
+
+    def vaciar(self) -> None:
+        with self.lock:
+            self.buf.clear()
+
+    def _abrir(self, sample_rate: int) -> None:
+        import sounddevice as sd
+        self.cerrar()
+        self.sr = sample_rate
+        self.stream = sd.RawOutputStream(samplerate=sample_rate, channels=1, dtype="int16",
+                                         device=self.dispositivo, callback=self._callback)
+        self.stream.start()
+
+    def _callback(self, salida, frames, _tiempo, _estado) -> None:
+        n = frames * 2
+        with self.lock:
+            trozo = bytes(self.buf[:n])
+            del self.buf[:n]
+        salida[:len(trozo)] = trozo
+        salida[len(trozo):] = bytes(n - len(trozo))
+
+    def cerrar(self) -> None:
+        if self.stream is not None:
+            self.stream.stop()
+            self.stream.close()
+            self.stream = None
+
+
+class GrabadorWav:
+    def __init__(self, ruta: Path):
+        self.ruta = ruta
+        self.w: Optional[wave.Wave_write] = None
+
+    def reproducir(self, sample_rate: int, pcm: bytes) -> None:
+        if self.w is None:
+            self.w = wave.open(str(self.ruta), "wb")
+            self.w.setnchannels(1)
+            self.w.setsampwidth(2)
+            self.w.setframerate(sample_rate)
+        self.w.writeframes(pcm)
+
+    def vaciar(self) -> None:
+        pass
+
+    def cerrar(self) -> None:
+        if self.w is not None:
+            self.w.close()

@@ -37,6 +37,7 @@ MENSAJES = [
     p.PlaybackAck(turn_id="t", pts_played=100), p.SttText(turn_id="t", texto="hola"),
     p.AvatarCmd(turn_id="t", pts=0, expression="feliz", gaze=(0.1, -0.2), mouth_form=0.5),
     p.PlaybackFlush(turn_id="t"), p.StateSync(emotion={"valence": 0.3}, mood_label="contenta"),
+    p.LlmText(turn_id="t", texto="¡GG!"),
     p.Error(codigo="x", detalle="y"),
 ]
 

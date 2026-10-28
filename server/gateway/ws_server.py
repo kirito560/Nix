@@ -22,8 +22,8 @@ from server.config import ConfigServidor
 from server.latencia import Registro
 from server.pipeline.escucha import Escucha
 from shared import auth
-from shared.protocol import (AuthChallenge, AuthOk, AuthResponse, ErrorProtocolo, PlaybackAck, SttText,
-                             UserState, VisionDelta, VisionFrame, decodificar_audio_in, parsear_mensaje)
+from shared.protocol import (AuthChallenge, AuthOk, AuthResponse, ErrorProtocolo, PlaybackAck, UserState,
+                             VisionDelta, VisionFrame, decodificar_audio_in, parsear_mensaje)
 
 log = logging.getLogger("nix.gateway")
 
@@ -55,8 +55,9 @@ class Gateway:
             await self.actual.close(CIERRE_REEMPLAZADO, "reemplazada")
         self.actual = ws
 
-        async def enviar(msg: SttText) -> None:
-            await ws.send(msg.a_json())
+        async def enviar(msg) -> None:
+            """Un mensaje del protocolo o una trama binaria de audio.out."""
+            await ws.send(msg if isinstance(msg, bytes) else msg.a_json())
 
         escucha = self.crear_escucha(enviar)
         try:

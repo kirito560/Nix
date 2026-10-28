@@ -32,6 +32,21 @@ class ConfigServidor:
     vad_umbral: float = 0.5
     vad_silencio_ms: float = 400.0
     vad_min_voz_ms: float = 250.0
+    # LLM
+    llm_proveedor: str = "auto"               # auto | groq | stub
+    llm_modelo: str = "openai/gpt-oss-20b"
+    llm_razonamiento: str = "low"             # solo modelos gpt-oss: low | medium | high
+    llm_max_tokens: int = 300
+    llm_temperatura: float = 0.8
+    historial_turnos: int = 10                # pares usuario/personaje que se recuerdan (la memoria llega en la fase 4)
+    # TTS
+    tts_proveedor: str = "auto"               # auto | edge | stub
+    tts_voz: str = ""                         # vacío = la voz de la ficha del personaje
+    tts_velocidad: str = "+0%"
+    # Barge-in: interrumpirla hablando. Con altavoces, su propia voz puede volver por el micrófono:
+    # mientras habla, una frase solo cuenta si dura al menos BARGE_MIN_VOZ_MS; si no, se toma por eco.
+    barge_in: bool = True
+    barge_min_voz_ms: float = 400.0
     # Percepción: apagada por defecto; nunca se envían imágenes a la nube sin activarla a mano.
     vision_habilitada: bool = False
 
@@ -57,6 +72,17 @@ class ConfigServidor:
             vad_umbral=e.decimal("VAD_UMBRAL", 0.5),
             vad_silencio_ms=e.decimal("VAD_SILENCIO_MS", 400.0),
             vad_min_voz_ms=e.decimal("VAD_MIN_VOZ_MS", 250.0),
+            llm_proveedor=e.texto("LLM_PROVEEDOR", "auto").lower(),
+            llm_modelo=e.texto("LLM_MODELO", "openai/gpt-oss-20b"),
+            llm_razonamiento=e.texto("LLM_RAZONAMIENTO", "low").lower(),
+            llm_max_tokens=e.entero("LLM_MAX_TOKENS", 300),
+            llm_temperatura=e.decimal("LLM_TEMPERATURA", 0.8),
+            historial_turnos=e.entero("HISTORIAL_TURNOS", 10),
+            tts_proveedor=e.texto("TTS_PROVEEDOR", "auto").lower(),
+            tts_voz=e.texto("TTS_VOZ"),
+            tts_velocidad=e.texto("TTS_VELOCIDAD", "+0%"),
+            barge_in=e.booleano("BARGE_IN", True),
+            barge_min_voz_ms=e.decimal("BARGE_MIN_VOZ_MS", 400.0),
             vision_habilitada=e.booleano("VISION_HABILITADA", False),
         )
 

@@ -1,4 +1,4 @@
-"""Pruebas de punta a punta del gateway: cliente real contra servidor real en 127.0.0.1 (STT stub)."""
+"""Pruebas de punta a punta del gateway: cliente real contra servidor real en 127.0.0.1 (STT, LLM y TTS stub)."""
 import asyncio
 import ipaddress
 import json
@@ -11,22 +11,29 @@ from websockets.exceptions import ConnectionClosed
 from client.ws_client import ErrorAutenticacion, autenticar, ejecutar
 from server.config import ConfigServidor
 from server.gateway.ws_server import CIERRE_NO_AUTORIZADO, Gateway
+from server.orquestador import Historial, Orquestador
 from server.pipeline.escucha import Escucha
+from server.pipeline.llm import LLMStub
 from server.pipeline.stt import STTStub
+from server.pipeline.tts import TTSStub
 from server.pipeline.vad import DetectorVoz, PuntuadorEnergia
 from shared import auth
-from shared.protocol import AuthChallenge, AuthOk, SttText
+from shared.protocol import AuthChallenge, AuthOk, LlmText, PlaybackFlush, SttText
+from tests.test_orquestador import NIX
 from tests.utiles import silencio, tono, tramas
 
 TOKEN = "token-de-prueba-" + "x" * 32
 
 
-def gateway(redes=("127.0.0.0/8",)) -> Gateway:
+def gateway(redes=("127.0.0.0/8",), tts=None) -> Gateway:
     cfg = ConfigServidor(token=TOKEN, host="127.0.0.1", puerto=0,
                          redes_permitidas=tuple(ipaddress.ip_network(r) for r in redes))
+    historial = Historial(10)
 
     def crear_escucha(enviar):
-        return Escucha(DetectorVoz(PuntuadorEnergia(), silencio_ms=300), STTStub(), enviar, g.registro)
+        orquestador = Orquestador(NIX, LLMStub(), tts or TTSStub(), enviar, g.registro, historial)
+        return Escucha(DetectorVoz(PuntuadorEnergia(), silencio_ms=300), STTStub(), orquestador,
+                       barge_min_voz_ms=400)
 
     g = Gateway(cfg, crear_escucha, "Nix")
     return g
@@ -38,20 +45,52 @@ async def generar(pcm: bytes):
         await asyncio.sleep(0)
 
 
-async def test_eco_de_punta_a_punta():
-    g, recibidos = gateway(), []
+async def conversar(g: Gateway, pcm: bytes, tiempo_real: bool = False):
+    recibidos, audio = [], []
 
     async def al_recibir(msg):
         recibidos.append(msg)
 
+    async def fuente():
+        for t in tramas(pcm):
+            yield t
+            await asyncio.sleep(0.02 if tiempo_real else 0)
+
     async with g.servir() as srv:
         url = f"ws://127.0.0.1:{srv.sockets[0].getsockname()[1]}"
-        await ejecutar(url, TOKEN, generar(silencio(0.3) + tono(1.2) + silencio(0.8) + tono(0.8) + silencio(0.8)),
-                       al_recibir, espera_final_s=1.0)
-    textos = [m.texto for m in recibidos if isinstance(m, SttText)]
-    assert len(textos) == 2 and all(t.startswith("(simulado)") for t in textos)
+        await ejecutar(url, TOKEN, fuente(), al_recibir, espera_final_s=1.0,
+                       al_audio=lambda turno, pts, sr, pcm: audio.append((turno, sr, len(pcm))))
+    return recibidos, audio
+
+
+async def test_conversacion_de_punta_a_punta():
+    g = gateway()
+    recibidos, audio = await conversar(g, silencio(0.3) + tono(1.2) + silencio(0.8))
+    oido = [m.texto for m in recibidos if isinstance(m, SttText)]
+    respuesta = " ".join(m.texto for m in recibidos if isinstance(m, LlmText) and m.texto)
+    assert len(oido) == 1 and oido[0].startswith("(simulado)")
+    assert respuesta.startswith("(simulado) Me dijiste") and recibidos[-1].final
+    turno = next(m.turn_id for m in recibidos if isinstance(m, LlmText))
+    assert audio and all(t == turno and sr == 24000 for t, sr, _ in audio)
     stats = g.registro.estadisticas()
-    assert stats["total"][2] == 2 and {"voz_fin→vad_fin", "vad_fin→stt_final", "stt_final→eco"} <= stats.keys()
+    assert {"voz_fin→vad_fin", "vad_fin→stt_final", "tts_1er_audio→audio_enviado", "total"} <= stats.keys()
+
+
+async def test_barge_in_la_interrumpe():
+    """Mientras su voz (larga) se reproduce, el usuario habla más de BARGE_MIN_VOZ_MS: ella se calla."""
+    g = gateway(tts=TTSStub(s_por_caracter=0.2, maximo_s=8))
+    recibidos, _ = await conversar(g, tono(0.8) + silencio(0.6) + silencio(0.5) + tono(1.0) + silencio(0.6),
+                                   tiempo_real=True)
+    assert any(isinstance(m, PlaybackFlush) for m in recibidos)
+    assert len([m for m in recibidos if isinstance(m, SttText)]) == 2
+
+
+async def test_ruido_corto_mientras_habla_no_la_interrumpe():
+    g = gateway(tts=TTSStub(s_por_caracter=0.2, maximo_s=8))
+    recibidos, _ = await conversar(g, tono(0.8) + silencio(0.6) + silencio(0.5) + tono(0.3) + silencio(0.6),
+                                   tiempo_real=True)
+    assert not any(isinstance(m, PlaybackFlush) for m in recibidos)
+    assert len([m for m in recibidos if isinstance(m, SttText)]) == 1
 
 
 async def test_token_incorrecto_cierra_la_conexion():

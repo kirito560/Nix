@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import AsyncIterator, Awaitable, Callable
+from typing import AsyncIterator, Awaitable, Callable, Optional
 
 from websockets.asyncio.client import ClientConnection, connect
 
 from client.audio_io import ahora_ms
 from shared import auth
 from shared.protocol import (AuthChallenge, AuthOk, AuthResponse, ErrorProtocolo, codificar_audio_in,
-                             parsear_mensaje)
+                             decodificar_audio_out, parsear_mensaje)
 
 log = logging.getLogger("nix.cliente")
 
@@ -32,8 +32,10 @@ async def autenticar(ws: ClientConnection, token: str) -> AuthOk:
 
 
 async def ejecutar(url: str, token: str, tramas: AsyncIterator[bytes],
-                   al_recibir: Callable[[object], Awaitable[None]], espera_final_s: float = 3.0) -> None:
-    """Envía las tramas de audio y llama a `al_recibir` con cada mensaje del servidor.
+                   al_recibir: Callable[[object], Awaitable[None]], espera_final_s: float = 3.0,
+                   al_audio: Optional[Callable[[str, int, int, bytes], None]] = None) -> None:
+    """Envía las tramas de audio y llama a `al_recibir` con cada mensaje del servidor y a
+    `al_audio(turn_id, pts_ms, sample_rate, pcm)` con cada trama de voz.
     Cuando se acaban las tramas (fin del WAV) espera `espera_final_s` las últimas respuestas y cierra."""
     async with connect(url, open_timeout=5, max_size=2 ** 22) as ws:
         ok = await autenticar(ws, token)
@@ -42,7 +44,12 @@ async def ejecutar(url: str, token: str, tramas: AsyncIterator[bytes],
         async def recibir():
             async for trama in ws:
                 if isinstance(trama, bytes):
-                    continue                     # audio.out llega en la fase 2
+                    if al_audio is not None:
+                        try:
+                            al_audio(*decodificar_audio_out(trama))
+                        except ErrorProtocolo as e:
+                            log.warning("audio.out inválido: %s", e)
+                    continue
                 try:
                     await al_recibir(parsear_mensaje(trama))
                 except ErrorProtocolo as e:

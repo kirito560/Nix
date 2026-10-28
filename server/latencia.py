@@ -4,11 +4,17 @@ Medición de latencia por turno con un registro propio de marcas de tiempo (time
 Cada turno abre un Span y va marcando etapas. Las duraciones se calculan entre etapas consecutivas
 (y el total, de la primera a la última); el Registro guarda las últimas N y calcula p50 y p95.
 
-Etapas de la fase 1:
-  voz_fin     llegó la última ventana con voz del usuario
-  vad_fin     el VAD dio la frase por terminada (tras VAD_SILENCIO_MS de silencio)
-  stt_final   el STT devolvió el texto
-  eco         se envió el texto al cliente
+Etapas (Escucha y Orquestador):
+  voz_fin        llegó la última ventana con voz del usuario
+  vad_fin        el VAD dio la frase por terminada (tras VAD_SILENCIO_MS de silencio)
+  stt_final      el STT devolvió el texto
+  llm_1er_token  primer texto del LLM
+  frase_1        primera frase completa para el TTS
+  tts_1er_audio  primer audio del TTS
+  audio_enviado  primer audio enviado al cliente
+
+"total" va de la primera a la última etapa (desde que dejaste de hablar); "tras_vad", desde vad_fin
+(sin el silencio que espera el VAD, que se ajusta con VAD_SILENCIO_MS).
 """
 from __future__ import annotations
 
@@ -44,6 +50,9 @@ class Span:
         d = {f"{a}→{b}": (tb - ta) * 1000 for (a, ta), (b, tb) in zip(self.marcas, self.marcas[1:])}
         if len(self.marcas) >= 2:
             d["total"] = (self.marcas[-1][1] - self.marcas[0][1]) * 1000
+        t_vad = dict(self.marcas).get("vad_fin")
+        if t_vad is not None and self.marcas[-1][0] != "vad_fin":
+            d["tras_vad"] = (self.marcas[-1][1] - t_vad) * 1000
         return d
 
 

@@ -6,6 +6,7 @@ numpy==2.5.4
 onnxruntime==1.31.1
 uvloop==0.23.0
 httpx==0.28.1
+edge-tts==7.3.1        # voz del personaje (necesita ffmpeg: sudo apt install ffmpeg)
 # pruebas
 pytest==9.2.0
 pytest-asyncio==1.4.1

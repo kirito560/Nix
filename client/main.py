@@ -1,9 +1,11 @@
 """
-Cliente ("cuerpo"): captura el micrófono (o un WAV) y lo envía al servidor; muestra lo que reconoce.
+Cliente ("cuerpo"): captura el micrófono (o un WAV), lo envía al servidor, muestra lo que entiende y lo que
+responde el personaje, y reproduce su voz.
 
-    uv run python -m client.main                       # micrófono
-    uv run python -m client.main --wav prueba.wav      # archivo, sin micrófono
-    uv run python -m client.main --listar              # dispositivos de audio
+    uv run python -m client.main                                  # micrófono y altavoces
+    uv run python -m client.main --wav prueba.wav                 # archivo, sin micrófono
+    uv run python -m client.main --wav prueba.wav --salida r.wav  # guarda la voz en vez de reproducirla
+    uv run python -m client.main --listar                         # dispositivos de audio
 """
 from __future__ import annotations
 
@@ -15,18 +17,25 @@ from pathlib import Path
 
 from websockets.exceptions import ConnectionClosed
 
-from client.audio_io import ArchivoWav, Microfono
+from client.audio_io import Altavoz, ArchivoWav, GrabadorWav, Microfono
 from client.ws_client import ErrorAutenticacion, ejecutar
 from shared.auth import validar_token
 from shared.config_base import Entorno, cargar_env
-from shared.protocol import SttText
+from shared.protocol import LlmText, PlaybackFlush, SttText
 
 log = logging.getLogger("nix.cliente")
 
 
-async def mostrar(msg) -> None:
-    if isinstance(msg, SttText):
-        print(f"🗣️  {msg.texto}", flush=True)
+def crear_mostrar(salida):
+    async def mostrar(msg) -> None:
+        if isinstance(msg, SttText):
+            print(f"🗣️  tú: {msg.texto}", flush=True)
+        elif isinstance(msg, LlmText) and msg.texto:
+            print(f"🤖 {msg.texto}", flush=True)
+        elif isinstance(msg, PlaybackFlush):
+            salida.vaciar()
+            print("✋ (interrumpida)", flush=True)
+    return mostrar
 
 
 def main() -> None:
@@ -39,6 +48,11 @@ def main() -> None:
     ap.add_argument("--wav", type=Path, help="enviar este WAV en lugar del micrófono")
     ap.add_argument("--dispositivo", default=e.texto("MIC_DISPOSITIVO") or None,
                     help="índice o nombre del micrófono (ver --listar)")
+    ap.add_argument("--altavoz", default=e.texto("ALTAVOZ_DISPOSITIVO") or None,
+                    help="índice o nombre de la salida de audio (ver --listar)")
+    ap.add_argument("--salida", type=Path, help="guardar la voz del personaje en este WAV en vez de reproducirla")
+    ap.add_argument("--espera", type=float, default=20.0,
+                    help="con --wav: segundos que espera la respuesta al acabar el archivo")
     ap.add_argument("--listar", action="store_true", help="listar dispositivos de audio y salir")
     args = ap.parse_args()
     if args.listar:
@@ -53,11 +67,14 @@ def main() -> None:
     if args.wav:
         fuente = ArchivoWav(args.wav)
     else:
-        dispositivo = int(args.dispositivo) if args.dispositivo and args.dispositivo.isdigit() else args.dispositivo
-        fuente = Microfono(dispositivo)
-        print("🎤 Habla cuando quieras (Ctrl+C para salir)")
+        fuente = Microfono(_dispositivo(args.dispositivo))
+        print("🎤 Habla cuando quieras (Ctrl+C para salir). Con altavoces, mejor usa audífonos: "
+              "así su voz no vuelve por el micrófono.")
+    salida = GrabadorWav(args.salida) if args.salida else Altavoz(_dispositivo(args.altavoz))
     try:
-        asyncio.run(ejecutar(args.servidor, token, fuente.tramas(), mostrar))
+        asyncio.run(ejecutar(args.servidor, token, fuente.tramas(), crear_mostrar(salida),
+                             espera_final_s=args.espera,
+                             al_audio=lambda _turno, _pts, sr, pcm: salida.reproducir(sr, pcm)))
     except ErrorAutenticacion as err:
         log.error("❌ autenticación: %s", err)
         sys.exit(1)
@@ -69,6 +86,12 @@ def main() -> None:
         sys.exit(1)
     except KeyboardInterrupt:
         pass
+    finally:
+        salida.cerrar()
+
+
+def _dispositivo(valor):
+    return int(valor) if valor and valor.isdigit() else valor
 
 
 if __name__ == "__main__":

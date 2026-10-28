@@ -1,10 +1,13 @@
 """
-Escucha de una conexión (fase 1): audio del cliente -> VAD -> STT -> eco del texto.
+Escucha de una conexión: audio del cliente -> VAD -> STT -> Orquestador.
 
 Por cada frase que detecta el VAD se lanza una tarea que abre la sesión STT y le va pasando el audio
 por una cola (así el audio no se pierde mientras se abre la conexión con el proveedor). Al cerrar la
-frase, la tarea pide el texto final y lo envía al cliente con un SttText. En la fase 2 el Orchestrator
-recibirá ese texto en lugar de devolverlo como eco.
+frase, la tarea pide el texto final y se lo pasa al Orquestador, que responde.
+
+Barge-in: si la frase empieza mientras el personaje habla, solo cuenta cuando junta BARGE_MIN_VOZ_MS de
+voz; entonces se interrumpe al personaje y la frase sigue como cualquier otra. Si termina antes, se toma
+por eco de su propia voz (o ruido) y se descarta sin transcribirla.
 """
 from __future__ import annotations
 
@@ -12,23 +15,27 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING
 
-from server.latencia import Registro, Span
+from server.latencia import Span
 from server.pipeline.stt import ProveedorSTT, a_pcm16
 from server.pipeline.vad import DetectorVoz, Reagrupador
-from shared.protocol import SttText
+
+if TYPE_CHECKING:
+    from server.orquestador import Orquestador
 
 log = logging.getLogger("nix.escucha")
 
 
 class Escucha:
-    def __init__(self, detector: DetectorVoz, stt: ProveedorSTT, enviar: Callable[[SttText], Awaitable[None]],
-                 registro: Registro):
-        self.detector, self.stt, self.enviar, self.registro = detector, stt, enviar, registro
+    def __init__(self, detector: DetectorVoz, stt: ProveedorSTT, orquestador: "Orquestador",
+                 barge_in: bool = True, barge_min_voz_ms: float = 400.0):
+        self.detector, self.stt, self.orquestador = detector, stt, orquestador
+        self.barge_in, self.barge_min_voz_ms = barge_in, barge_min_voz_ms
         self.reagrupador = Reagrupador()
         self.cola: asyncio.Queue | None = None
         self.tareas: set[asyncio.Task] = set()
+        self.pendiente_de_barge = False      # la frase en curso empezó mientras el personaje hablaba
 
     async def recibir_audio(self, pcm16: bytes) -> None:
         for ventana in self.reagrupador.agregar(pcm16):
@@ -37,16 +44,31 @@ class Escucha:
 
     def _evento(self, ev) -> None:
         if ev.tipo == "inicio":
+            self.pendiente_de_barge = self.orquestador.hablando
             self.cola = asyncio.Queue()
             self.cola.put_nowait(a_pcm16(ev.audio))
-            tarea = asyncio.create_task(self._frase(self.cola, str(uuid.uuid4())), name="frase")
-            self.tareas.add(tarea)
-            tarea.add_done_callback(self.tareas.discard)
+            self._lanzar(self._frase(self.cola, str(uuid.uuid4())), "frase")
         elif ev.tipo == "voz" and self.cola is not None:
             self.cola.put_nowait(a_pcm16(ev.audio))
+            if self.pendiente_de_barge and self.detector.ms_voz >= self.barge_min_voz_ms:
+                self.pendiente_de_barge = False
+                if self.barge_in:
+                    self._lanzar(self.orquestador.interrumpir("barge-in"), "barge-in")
+                else:
+                    self.cola.put_nowait(("descartada", 0.0, 0.0))      # sin barge-in: no se le interrumpe
+                    self.cola = None
         elif ev.tipo in ("fin", "descartada") and self.cola is not None:
+            if self.pendiente_de_barge:
+                log.info("🔇 frase durante su voz, demasiado corta para interrumpir: la tomo por eco")
+                ev.tipo = "descartada"
+            self.pendiente_de_barge = False
             self.cola.put_nowait((ev.tipo, ev.t_ultima_voz, time.monotonic()))
             self.cola = None
+
+    def _lanzar(self, corrutina, nombre: str) -> None:
+        tarea = asyncio.create_task(corrutina, name=nombre)
+        self.tareas.add(tarea)
+        tarea.add_done_callback(self.tareas.discard)
 
     async def _frase(self, cola: asyncio.Queue, turno: str) -> None:
         try:
@@ -63,7 +85,7 @@ class Escucha:
                     continue
                 tipo, t_voz_fin, t_vad_fin = item
                 if tipo == "descartada":
-                    log.debug("frase demasiado corta; descartada")
+                    log.debug("frase descartada")
                     return
                 span = Span(turno)
                 span.marcar("voz_fin", t_voz_fin)
@@ -75,9 +97,7 @@ class Escucha:
                     log.info("🙉 frase descartada: %s", resultado.motivo)
                     return
                 log.info("🗣️ usuario: %s", resultado.texto)
-                await self.enviar(SttText(turn_id=turno, texto=resultado.texto))
-                span.marcar("eco")
-                self.registro.cerrar(span)
+                await self.orquestador.al_texto_usuario(turno, resultado.texto, span)
                 return
         except Exception:
             log.exception("❌ error en el STT (%s)", self.stt.nombre)
@@ -89,4 +109,4 @@ class Escucha:
         for tarea in list(self.tareas):
             tarea.cancel()
         await asyncio.gather(*self.tareas, return_exceptions=True)
-
+        await self.orquestador.cerrar()

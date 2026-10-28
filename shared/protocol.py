@@ -113,11 +113,20 @@ class PlaybackAck(_Mensaje):
 
 # Servidor -> cliente
 class SttText(_Mensaje):
-    """Texto reconocido (en la fase 1, el eco de lo que dijo el usuario)."""
+    """Lo que el servidor entendió que dijo el usuario."""
     type: Literal["stt.text"] = "stt.text"
     turn_id: str
     texto: str
     final: bool = True
+
+
+class LlmText(_Mensaje):
+    """Una frase de la respuesta del personaje, justo antes de su audio. final=True cierra el turno
+    (puede llegar con texto vacío)."""
+    type: Literal["llm.text"] = "llm.text"
+    turn_id: str
+    texto: str
+    final: bool = False
 
 
 class AvatarCmd(_Mensaje):
@@ -149,13 +158,13 @@ class Error(_Mensaje):
 
 Mensaje = Annotated[
     Union[AuthChallenge, AuthResponse, AuthOk, VisionDelta, VisionFrame, UserState, PlaybackAck,
-          SttText, AvatarCmd, PlaybackFlush, StateSync, Error],
+          SttText, LlmText, AvatarCmd, PlaybackFlush, StateSync, Error],
     Field(discriminator="type"),
 ]
 _ADAPTADOR = TypeAdapter(Mensaje)
 
 MENSAJES_DEL_CLIENTE = (AuthResponse, VisionDelta, VisionFrame, UserState, PlaybackAck)
-MENSAJES_DEL_SERVIDOR = (AuthChallenge, AuthOk, SttText, AvatarCmd, PlaybackFlush, StateSync, Error)
+MENSAJES_DEL_SERVIDOR = (AuthChallenge, AuthOk, SttText, LlmText, AvatarCmd, PlaybackFlush, StateSync, Error)
 
 
 def parsear_mensaje(texto: str | bytes) -> _Mensaje:

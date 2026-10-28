@@ -6,7 +6,7 @@ en Windows (el "cuerpo") hablan por WebSocket dentro de la red local.
 | Fase | Contenido | Estado |
 |---|---|---|
 | 1 | Esqueleto, VAD, STT en streaming, eco del texto, latencia por etapa | ✅ |
-| 2 | LLM + TTS en streaming, orquestador, barge-in, AEC | pendiente |
+| 2 | LLM + TTS en streaming, orquestador, barge-in, AEC | 🟡 en curso (falta AEC y medir con Groq) |
 | 3 | Motor emocional | pendiente |
 | 4 | Memoria de tres niveles | pendiente |
 | 5 | Heartbeat y percepción | pendiente |
@@ -17,8 +17,8 @@ en Windows (el "cuerpo") hablan por WebSocket dentro de la red local.
 
 ```
 shared/      protocolo de mensajes (pydantic), autenticación HMAC, lectura del .env
-server/      gateway WebSocket, VAD Silero, STT, latencias, personajes, juegos (marcador y reto del día)
-client/      captura de micrófono o WAV, conexión con el servidor
+server/      gateway WebSocket, VAD Silero, STT, LLM, TTS, orquestador, latencias, personajes, juegos
+client/      micrófono o WAV, altavoces, conexión con el servidor
 personajes/  fichas de personaje (nix.md, narwell.md)
 tests/       pytest
 ```
@@ -46,14 +46,40 @@ Abrir el puerto **solo** para la red local (una vez):
 sudo ufw allow from 192.168.1.0/24 to any port 8765 proto tcp comment 'Nix WebSocket'
 ```
 
+El servidor también necesita `ffmpeg` (para decodificar la voz de edge-tts): `sudo apt install ffmpeg`.
+
 ### Cliente (Windows)
 
-1. Instala Python 3.13 y uv (`winget install astral-sh.uv`).
-2. Copia la carpeta del proyecto (o `git clone`) y en PowerShell:
+En **PowerShell** (no hace falta ser administrador):
+
+1. Instala uv y Git (si ya los tienes, sáltalo). Cierra y vuelve a abrir PowerShell al terminar:
    ```powershell
+   winget install astral-sh.uv
+   winget install Git.Git
+   ```
+2. Descarga el proyecto (el repositorio es público) e instala las dependencias. uv descarga Python 3.13 solo:
+   ```powershell
+   cd $HOME
+   git clone https://github.com/kirito560/Nix.git
+   cd Nix
    uv venv --python 3.13 .venv
    uv pip install --python .venv -r requirements-client.txt
    ```
+3. Crea el `.env` del cliente con el `NIX_TOKEN` del servidor. En el servidor, muéstralo con
+   `grep ^NIX_TOKEN= ~/nix/.env` y cópialo. En el PC:
+   ```powershell
+   notepad .env
+   ```
+   Escribe estas dos líneas (con tu token) y guarda:
+   ```
+   NIX_TOKEN=pega-aquí-el-token-del-servidor
+   NIX_SERVIDOR=ws://192.168.1.50:8765
+   ```
+   El cliente no necesita ninguna otra clave: Groq y lo demás viven solo en el servidor.
+4. Comprueba los dispositivos de audio (opcional): `uv run --python .venv python -m client.main --listar`.
+   Si no quieres los predeterminados, añade al `.env` `MIC_DISPOSITIVO=<número>` y `ALTAVOZ_DISPOSITIVO=<número>`.
+
+Para actualizar más adelante: `git pull` y repetir el `uv pip install`.
 
 ## Configuración (.env)
 
@@ -70,15 +96,46 @@ El servidor ya tiene su `.env` con un token generado; cópialo al `.env` del cli
 ```bash
 # Servidor
 uv run --python .venv python -m server.main
+uv run --python .venv python -m server.medir          # latencia de STT, LLM y TTS por separado
 
 # Cliente (Windows)
 uv run --python .venv python -m client.main              # micrófono predeterminado
 uv run --python .venv python -m client.main --listar     # ver micrófonos
 uv run --python .venv python -m client.main --wav x.wav  # enviar un WAV (también sirve en Linux)
+uv run --python .venv python -m client.main --wav x.wav --salida r.wav   # guardar su voz en un WAV
 
 # Pruebas
 uv run --python .venv pytest -q
 ```
+
+### ¿Cómo sé que se conectó?
+
+- En el **PC** aparece `✅ conectado con ws://192.168.1.50:8765 (personaje: Nix)` y después
+  `🎤 Habla cuando quieras`. Al hablar verás `🗣️  tú: …` (lo que entendió) y `🤖 …` (lo que responde),
+  y la oirás por los altavoces.
+- En el **servidor** aparecen `✅ cliente 192.168.1.x autenticado`, `🗣️ usuario: …` y la línea `⏱️` de latencia.
+- Si falla:
+  - `no pude conectar`: el servidor no está corriendo, la IP no es esa, o el firewall bloquea el puerto
+    (`sudo ufw status` debe mostrar `8765/tcp ALLOW 192.168.1.0/24`).
+  - `autenticación` o `el servidor cerró la conexión`: el `NIX_TOKEN` del PC no es igual al del servidor.
+
+## Conversación (fase 2)
+
+```
+micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases → TTS (edge-tts) → altavoces
+```
+
+- **LLM:** Groq con `LLM_MODELO` (por defecto `openai/gpt-oss-20b` con `LLM_RAZONAMIENTO=low`). Se le pasa la
+  ficha del personaje y los últimos `HISTORIAL_TURNOS` intercambios (solo en memoria).
+- **Frases:** el texto se corta en frases a medida que llega; la primera sale en cuanto hay una coma, para
+  que la voz empiece antes. Se quitan emojis, markdown y acotaciones entre asteriscos.
+- **TTS:** edge-tts con la voz de la ficha (`es-MX-DaliaNeural`), decodificada a PCM de 24 kHz con ffmpeg
+  sobre la marcha. Se sintetizan hasta 2 frases a la vez, así la siguiente ya está lista.
+- **Barge-in:** si hablas mientras ella habla durante más de `BARGE_MIN_VOZ_MS` (400 ms), se calla al
+  instante (el servidor manda `playback.flush` y el cliente vacía su búfer). Una frase más corta durante su
+  voz se toma por eco de los altavoces y se ignora. **Todavía no hay cancelación de eco (AEC):** usa
+  audífonos; con altavoces, su voz puede volver por el micrófono.
+- Sin `GROQ_API_KEY`, el STT y el LLM son simulados (la voz sí es real).
 
 ## Seguridad
 
@@ -98,14 +155,17 @@ Cada turno registra marcas de tiempo del servidor y muestra en consola la duraci
 acumulado con p50/p95:
 
 ```
-⏱️ turno ee10b77d | voz_fin→vad_fin 421 ms | vad_fin→stt_final 0 ms | stt_final→eco 1 ms | total 422 ms
-⏱️ acumulado | ... | total p50 421 / p95 423 ms (n=4)
+⏱️ turno 6c1f02aa | voz_fin→vad_fin 421 ms | vad_fin→stt_final 0 ms | stt_final→llm_1er_token 1 ms | llm_1er_token→frase_1 0 ms | frase_1→tts_1er_audio 790 ms | tts_1er_audio→audio_enviado 0 ms | total 1212 ms | tras_vad 791 ms
+⏱️ acumulado | ... | total p50 1338 / p95 1949 ms (n=3)
 ```
 
 - `voz_fin→vad_fin`: silencio que espera el VAD para dar la frase por terminada (`VAD_SILENCIO_MS`).
   Es casi todo el tiempo; bajarlo reduce la latencia pero corta frases en las pausas.
 - `vad_fin→stt_final`: lo que tarda el proveedor STT en dar el texto final.
-- `stt_final→eco`: envío al cliente.
+- `stt_final→llm_1er_token`, `llm_1er_token→frase_1`: lo que tarda el LLM en empezar y en dar la primera frase.
+- `frase_1→tts_1er_audio`: lo que tarda el TTS en dar el primer audio (con edge-tts, unos 800 ms).
+- `tts_1er_audio→audio_enviado`: envío al cliente.
+- `total` cuenta desde que dejas de hablar; `tras_vad`, desde que el VAD cierra la frase.
 
 Para medir: arranca el servidor, habla (o envía un WAV) varias veces y mira la línea `acumulado`.
 Al detener el servidor (Ctrl+C) se imprime el resumen final.
@@ -147,7 +207,8 @@ uv run --python .venv python -m server.juegos registrar twitch:amigo Amigo ppt g
 uv run --python .venv python -m server.juegos marcador
 ```
 
-## Qué es stub en la fase 1
+## Qué es simulado (stub)
 
-- STT: si no hay `DEEPGRAM_API_KEY` ni `GROQ_API_KEY`, el texto es simulado.
+- STT y LLM: si no hay `GROQ_API_KEY` (ni `DEEPGRAM_API_KEY` para el STT), el texto es simulado.
+- TTS: si falta edge-tts o ffmpeg, un tono en lugar de la voz.
 - VAD: si falta `silero_vad.onnx`, se usa uno por volumen (aviso en consola).
