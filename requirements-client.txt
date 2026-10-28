@@ -1,0 +1,6 @@
+# Cliente (Windows, Python 3.13).
+websockets==17.3
+pydantic==2.14.1
+python-dotenv==1.2.4
+numpy==2.5.4
+sounddevice==0.5.6

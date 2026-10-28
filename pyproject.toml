@@ -1,0 +1,11 @@
+[project]
+name = "nix"
+version = "0.1.0"
+description = "Nix: compañera virtual en tiempo real (cerebro en Ubuntu, cuerpo en Windows)"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

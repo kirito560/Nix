@@ -1,0 +1,11 @@
+# Servidor (Ubuntu, Python 3.13 con uv). Versiones probadas el 2026-10-28.
+websockets==17.3
+pydantic==2.14.1
+python-dotenv==1.2.4
+numpy==2.5.4
+onnxruntime==1.31.1
+uvloop==0.23.0
+httpx==0.28.1
+# pruebas
+pytest==9.2.0
+pytest-asyncio==1.4.1
