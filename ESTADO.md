@@ -26,6 +26,7 @@
 - **Orquestador (fase 2):** `server/orquestador.py`. Turnos con 3 tareas encadenadas (pensar, sintetizar, emitir), historial y latencia por etapa.
 - **Barge-in (fase 2):** si el usuario habla más de 400 ms mientras ella habla, el servidor cancela el turno y manda `playback.flush`; el cliente se calla al instante. Si la frase es más corta, se toma por eco y se descarta sin transcribirla.
 - **Cliente:** micrófono o WAV, altavoces (`Altavoz`) o WAV de salida (`--salida`). Muestra `🗣️ tú:` y `🤖`.
+- **Servicio (2026-10-29):** `nix.service` (servicio de usuario, `despliegue/nix.service`) activo y habilitado: arranca solo, se reinicia si falla, `MemoryMax=1G`. Registro: `journalctl --user -u nix -f`.
 - **Medición:** `python -m server.medir` mide el STT, cada modelo de LLM y el TTS por separado.
 - **Prueba real en el servidor (2026-10-29):** cliente → servidor en `127.0.0.1` con un WAV hablado, todo real (Groq Whisper, Qwen, Dalia). Transcribió perfecto «Hola Nix, ¿qué opinas de la pizza con piña?» las 6 veces.
 
@@ -83,7 +84,8 @@ Los modelos `llama-3.1-8b-instant` y `llama-3.3-70b-versatile` aparecen en la do
 ## Pendientes (de Kirito)
 
 1. ~~Clave de Groq~~ ✅ puesta en `~/nix/.env` (2026-10-29).
-2. **Firewall:** comprobar `sudo ufw status` (debe salir `8765/tcp ALLOW 192.168.1.0/24`). No pude verlo: `sudo` pide contraseña.
+2. ~~Firewall~~ ✅ comprobado: `8765/tcp ALLOW IN 192.168.1.0/24`.
+   ⚠️ **Seguridad:** SSH (puerto 22) está abierto a cualquier dirección y acepta contraseñas (`passwordauthentication yes`). Kirito debe cambiar su contraseña (`passwd`) y, después, pasar a entrar solo con llave.
 3. **Probar el cliente en Windows** (guía en el README, «Cliente (Windows)»).
 4. **Decidir la voz de pago** si se quiere bajar a ~500 ms (abajo).
 5. Fase 7: credenciales de Discord, Telegram y Twitch (`narchan_`).
@@ -112,3 +114,4 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
 - 2026-10-28: fase 1 (`023d9ba`). Deploy key `nix_deploy` configurada. Revisión general y creación de esta bitácora (`2873582`).
 - 2026-10-28: fase 2 (sin AEC): LLM Groq, frases, TTS edge-tts, orquestador, barge-in con protección contra el eco, cliente con altavoces, `server.medir`. STT fijado a Groq. Guía del cliente de Windows en el README.
 - 2026-10-29: clave de Groq puesta. Medición real con `server.medir` y 6 conversaciones completas en el servidor (2,05 s p50 desde que dejas de hablar). LLM cambiado a `qwen/qwen3.8-27b` con respaldo automático a `gpt-oss-120b`.
+- 2026-10-29: firewall comprobado (ya estaba bien). Nix instalada como servicio de usuario `nix` y probada contra 192.168.1.50.

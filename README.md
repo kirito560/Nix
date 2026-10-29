@@ -93,6 +93,17 @@ El servidor ya tiene su `.env` con un token generado; cópialo al `.env` del cli
 
 ## Ejecutar
 
+En el servidor, Nix corre como **servicio de usuario** (`despliegue/nix.service`): arranca sola al encender
+el equipo y se reinicia si falla.
+
+```bash
+systemctl --user restart nix          # tras cambiar el .env o actualizar el código
+systemctl --user status nix
+journalctl --user -u nix -f           # ver lo que entiende, lo que responde y la latencia
+```
+
+A mano (con el servicio parado: `systemctl --user stop nix`):
+
 ```bash
 # Servidor
 uv run --python .venv python -m server.main

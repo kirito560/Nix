@@ -1,0 +1,22 @@
+# Servicio de usuario del servidor de Nix ("cerebro").
+# Instalar:  cp ~/nix/despliegue/nix.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+#            systemctl --user enable --now nix
+# Registro:  journalctl --user -u nix -f
+[Unit]
+Description=Nix: servidor de la compañera IA (cerebro)
+After=network-online.target
+RequiresMountsFor=/datos
+
+[Service]
+WorkingDirectory=/home/narchan/nix
+ExecStart=/home/narchan/nix/.venv/bin/python -u -m server.main
+StandardOutput=journal
+StandardError=journal
+# Si la red aún no tiene la IP 192.168.1.50 al arrancar, falla y se reintenta.
+Restart=on-failure
+RestartSec=10
+# Que un fallo de Nix no se lleve al servidor de Minecraft por delante.
+MemoryMax=1G
+
+[Install]
+WantedBy=default.target
