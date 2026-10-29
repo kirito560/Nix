@@ -4,7 +4,8 @@ trozos de texto a medida que llegan, para que el TTS pueda empezar con la primer
 
   - LLMGroq: API compatible con OpenAI de Groq (https://console.groq.com/docs). Con los modelos gpt-oss se
     manda `reasoning_effort` (low = menos espera antes del primer token); solo se lee `delta.content`, así
-    que el razonamiento nunca llega a la voz.
+    que el razonamiento nunca llega a la voz. Si Groq retira el modelo (404 model_not_found), pasa al
+    modelo de respaldo y se queda con él.
   - LLMStub: sin clave. Repite lo que dijo el usuario, para probar la tubería completa.
 """
 from __future__ import annotations
@@ -22,6 +23,10 @@ log = logging.getLogger("nix.llm")
 
 class ErrorLLM(RuntimeError):
     pass
+
+
+class ModeloRetirado(ErrorLLM):
+    """El modelo no existe o la cuenta ya no tiene acceso (los modelos en vista previa pueden retirarse)."""
 
 
 class ProveedorLLM(abc.ABC):
@@ -46,9 +51,9 @@ class LLMGroq(ProveedorLLM):
     URL = "https://api.groq.com/openai/v1/chat/completions"
 
     def __init__(self, api_key: str, modelo: str, max_tokens: int = 300, temperatura: float = 0.8,
-                 razonamiento: str = "low", cliente=None):
+                 razonamiento: str = "low", cliente=None, respaldo: str = ""):
         import httpx
-        self.api_key, self.modelo = api_key, modelo
+        self.api_key, self.modelo, self.respaldo = api_key, modelo, respaldo
         self.max_tokens, self.temperatura, self.razonamiento = max_tokens, temperatura, razonamiento
         self.http = cliente or httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0))
 
@@ -60,11 +65,24 @@ class LLMGroq(ProveedorLLM):
         return cuerpo
 
     async def responder(self, mensajes: list[dict]) -> AsyncIterator[str]:
+        try:
+            async for trozo in self._responder(mensajes):
+                yield trozo
+        except ModeloRetirado:
+            if not self.respaldo or self.respaldo == self.modelo:
+                raise
+            log.warning("🧠 Groq ya no ofrece %s; cambio al modelo de respaldo %s", self.modelo, self.respaldo)
+            self.modelo = self.respaldo
+            async for trozo in self._responder(mensajes):
+                yield trozo
+
+    async def _responder(self, mensajes: list[dict]) -> AsyncIterator[str]:
         async with self.http.stream("POST", self.URL, json=self.cuerpo(mensajes),
                                     headers={"Authorization": f"Bearer {self.api_key}"}) as r:
             if r.status_code >= 400:
                 await r.aread()
-                raise ErrorLLM(f"Groq respondió {r.status_code}: {r.text[:300]}")
+                error = ModeloRetirado if r.status_code == 404 and "model_not_found" in r.text else ErrorLLM
+                raise error(f"Groq respondió {r.status_code}: {r.text[:300]}")
             async for linea in r.aiter_lines():
                 if not linea.startswith("data:"):
                     continue
@@ -81,6 +99,6 @@ def crear_llm(cfg: ConfigServidor) -> ProveedorLLM:
     """LLM_PROVEEDOR=auto usa Groq si hay GROQ_API_KEY; si no, el simulado (con aviso)."""
     if cfg.llm_proveedor in ("auto", "groq") and cfg.groq_api_key:
         return LLMGroq(cfg.groq_api_key, cfg.llm_modelo, cfg.llm_max_tokens, cfg.llm_temperatura,
-                       cfg.llm_razonamiento)
+                       cfg.llm_razonamiento, respaldo=cfg.llm_modelo_respaldo)
     log.warning("🧠 LLM simulado (stub): %s", "sin GROQ_API_KEY" if cfg.llm_proveedor != "stub" else "elegido")
     return LLMStub()

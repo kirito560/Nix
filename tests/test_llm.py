@@ -50,3 +50,20 @@ async def test_stub_y_eleccion():
     assert crear_llm(ConfigServidor(token="x" * 40)).nombre == "stub"
     assert crear_llm(ConfigServidor(token="x" * 40, groq_api_key="k")).nombre == "groq"
     assert crear_llm(ConfigServidor(token="x" * 40, groq_api_key="k", llm_proveedor="stub")).nombre == "stub"
+
+
+async def test_si_groq_retira_el_modelo_pasa_al_respaldo():
+    modelos = []
+
+    def manejar(request: httpx.Request) -> httpx.Response:
+        modelo = json.loads(request.content)["model"]
+        modelos.append(modelo)
+        if modelo == "qwen/viejo":
+            return httpx.Response(404, json={"error": {"code": "model_not_found"}})
+        return httpx.Response(200, content=sse({"choices": [{"delta": {"content": "hola"}}]}, "[DONE]"))
+
+    llm = LLMGroq("CLAVE", "qwen/viejo", respaldo="openai/gpt-oss-120b",
+                  cliente=httpx.AsyncClient(transport=httpx.MockTransport(manejar)))
+    assert [t async for t in llm.responder([])] == ["hola"]
+    assert [t async for t in llm.responder([])] == ["hola"]
+    assert modelos == ["qwen/viejo", "openai/gpt-oss-120b", "openai/gpt-oss-120b"]

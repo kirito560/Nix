@@ -30,7 +30,7 @@ from server.pipeline.stt import STTGroqWhisper
 from server.pipeline.tts import TTSEdge
 from shared.config_base import cargar_env
 
-MODELOS = ["openai/gpt-oss-20b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile", "openai/gpt-oss-120b"]
+MODELOS = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 PREGUNTAS = ["¿Qué opinas de la pizza con piña?", "Te reto a una trivia de anime.", "¿Cómo te fue hoy?",
              "Perdí otra vez en piedra, papel o tijera.", "¿Cuál es el mejor juego de terror?"]
 FRASES_TTS = ["¡GG, eso estuvo roto!", "Oye, ¿otra vez tú? Va, revancha.", "Ni modo, skill issue de mi parte.",

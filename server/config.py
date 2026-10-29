@@ -34,7 +34,8 @@ class ConfigServidor:
     vad_min_voz_ms: float = 250.0
     # LLM
     llm_proveedor: str = "auto"               # auto | groq | stub
-    llm_modelo: str = "openai/gpt-oss-20b"
+    llm_modelo: str = "qwen/qwen3.8-27b"
+    llm_modelo_respaldo: str = "openai/gpt-oss-120b"
     llm_razonamiento: str = "low"             # solo modelos gpt-oss: low | medium | high
     llm_max_tokens: int = 300
     llm_temperatura: float = 0.8
@@ -73,7 +74,8 @@ class ConfigServidor:
             vad_silencio_ms=e.decimal("VAD_SILENCIO_MS", 400.0),
             vad_min_voz_ms=e.decimal("VAD_MIN_VOZ_MS", 250.0),
             llm_proveedor=e.texto("LLM_PROVEEDOR", "auto").lower(),
-            llm_modelo=e.texto("LLM_MODELO", "openai/gpt-oss-20b"),
+            llm_modelo=e.texto("LLM_MODELO", "qwen/qwen3.8-27b"),
+            llm_modelo_respaldo=e.texto("LLM_MODELO_RESPALDO", "openai/gpt-oss-120b"),
             llm_razonamiento=e.texto("LLM_RAZONAMIENTO", "low").lower(),
             llm_max_tokens=e.entero("LLM_MAX_TOKENS", 300),
             llm_temperatura=e.decimal("LLM_TEMPERATURA", 0.8),
