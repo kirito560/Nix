@@ -10,7 +10,8 @@ from websockets.exceptions import ConnectionClosed
 
 from client.ws_client import ErrorAutenticacion, autenticar, ejecutar
 from server.config import ConfigServidor
-from server.gateway.ws_server import CIERRE_NO_AUTORIZADO, Gateway
+from server.gateway.ws_server import Gateway
+from shared.protocol import CIERRE_NO_AUTORIZADO
 from server.orquestador import Historial, Orquestador
 from server.pipeline.escucha import Escucha
 from server.pipeline.llm import LLMStub
@@ -142,3 +143,74 @@ def test_redes_permitidas_por_defecto():
     assert not cfg.ip_permitida("192.168.2.10") and not cfg.ip_permitida("8.8.8.8")
     assert cfg.ip_permitida("::ffff:192.168.1.80") and not cfg.ip_permitida("basura")
     assert cfg.vision_habilitada is False
+
+
+async def test_la_escucha_adelanta_la_transcripcion_en_las_pausas():
+    """Una pausa corta a media frase adelanta y luego se descarta; la pausa final se usa."""
+    from server.pipeline.stt import STTStub, _SesionStub
+
+    usos = []
+
+    class SesionEspia(_SesionStub):
+        def adelantar(self):
+            usos.append("adelantar")
+
+        async def finalizar(self, usar_adelanto=False):
+            usos.append(f"finalizar:{usar_adelanto}")
+            return await super().finalizar()
+
+    class STTEspia(STTStub):
+        async def abrir(self):
+            return SesionEspia(self)
+
+    g = gateway()
+
+    def crear_escucha(enviar):
+        orquestador = Orquestador(NIX, LLMStub(), TTSStub(), enviar, g.registro, Historial(10))
+        return Escucha(DetectorVoz(PuntuadorEnergia(), silencio_ms=400), STTEspia(), orquestador, adelanto_ms=200)
+
+    g.crear_escucha = crear_escucha
+    await conversar(g, tono(0.8) + silencio(0.25) + tono(0.8) + silencio(0.8))
+    assert usos == ["adelantar", "adelantar", "finalizar:True"]
+
+
+async def test_el_cliente_se_reconecta_si_el_servidor_reinicia():
+    from client.main import conversar_siempre
+
+    class FuenteSilencio:
+        async def tramas(self):
+            while True:
+                await asyncio.sleep(0.02)
+                yield bytes(640)
+
+    class SalidaMuda:
+        def reproducir(self, sr, pcm):
+            pass
+
+        def vaciar(self):
+            pass
+
+    g = gateway()
+    async with g.servir() as srv:
+        puerto = srv.sockets[0].getsockname()[1]
+        cliente = asyncio.create_task(conversar_siempre(f"ws://127.0.0.1:{puerto}", TOKEN, FuenteSilencio(),
+                                                        SalidaMuda(), lambda *a: None))
+        for _ in range(100):
+            await asyncio.sleep(0.02)
+            if g.actual is not None:
+                break
+        assert g.actual is not None
+    # Servidor apagado: el cliente sigue vivo, reintentando.
+    await asyncio.sleep(0.3)
+    assert not cliente.done()
+    g2 = gateway()
+    g2.cfg = ConfigServidor(token=TOKEN, host="127.0.0.1", puerto=puerto,
+                            redes_permitidas=g.cfg.redes_permitidas)
+    async with g2.servir():
+        for _ in range(250):
+            await asyncio.sleep(0.02)
+            if g2.actual is not None:
+                break
+        assert g2.actual is not None, "no se reconectó"
+        cliente.cancel()
+        await asyncio.gather(cliente, return_exceptions=True)

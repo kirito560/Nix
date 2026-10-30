@@ -13,7 +13,7 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import Callable
+from typing import Awaitable, Callable, Optional
 
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
@@ -22,19 +22,20 @@ from server.config import ConfigServidor
 from server.latencia import Registro
 from server.pipeline.escucha import Escucha
 from shared import auth
-from shared.protocol import (AuthChallenge, AuthOk, AuthResponse, ErrorProtocolo, PlaybackAck, UserState,
-                             VisionDelta, VisionFrame, decodificar_audio_in, parsear_mensaje)
+from shared.protocol import (CIERRE_NO_AUTORIZADO, CIERRE_REEMPLAZADO, AuthChallenge, AuthOk, AuthResponse,
+                             ErrorProtocolo, PlaybackAck, UserState, VisionDelta, VisionFrame,
+                             decodificar_audio_in, parsear_mensaje)
 
 log = logging.getLogger("nix.gateway")
 
-CIERRE_NO_AUTORIZADO = 4401
-CIERRE_REEMPLAZADO = 4409
 TIEMPO_AUTH_S = 5.0
 
 
 class Gateway:
-    def __init__(self, cfg: ConfigServidor, crear_escucha: Callable[[Callable], Escucha], nombre_personaje: str):
+    def __init__(self, cfg: ConfigServidor, crear_escucha: Callable[[Callable], Escucha], nombre_personaje: str,
+                 al_conectar: Optional[Callable[[], Awaitable[None]]] = None):
         self.cfg, self.crear_escucha, self.nombre_personaje = cfg, crear_escucha, nombre_personaje
+        self.al_conectar = al_conectar
         self.registro = Registro()
         self.actual: ServerConnection | None = None
 
@@ -54,6 +55,8 @@ class Gateway:
             log.info("🔁 nueva conexión; cierro la anterior")
             await self.actual.close(CIERRE_REEMPLAZADO, "reemplazada")
         self.actual = ws
+        if self.al_conectar is not None:
+            asyncio.create_task(self.al_conectar(), name="al-conectar")
 
         async def enviar(msg) -> None:
             """Un mensaje del protocolo o una trama binaria de audio.out."""

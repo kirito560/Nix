@@ -84,3 +84,34 @@ async def test_groq_no_llama_a_la_api_sin_voz():
     sesion = await stt.abrir()
     await sesion.enviar(np.zeros(16000, dtype="<i2").tobytes())
     assert (await sesion.finalizar()).texto is None
+
+
+async def test_groq_usa_la_transcripcion_adelantada():
+    llamadas = []
+
+    def manejar(request: httpx.Request) -> httpx.Response:
+        llamadas.append(len(request.content))
+        return httpx.Response(200, json={"text": "Hola, ¿qué tal?", "segments": [{"no_speech_prob": 0.01}]})
+
+    stt = STTGroqWhisper("CLAVE", "m", "es", cliente=httpx.AsyncClient(transport=httpx.MockTransport(manejar)))
+    sesion = await stt.abrir()
+    await sesion.enviar(tono(1.0))
+    sesion.adelantar()
+    await sesion.enviar(np.zeros(3200, dtype="<i2").tobytes())       # 200 ms más de silencio
+    assert (await sesion.finalizar(usar_adelanto=True)).texto == "Hola, ¿qué tal?"
+    assert len(llamadas) == 1
+
+
+async def test_groq_descarta_el_adelanto_si_siguio_hablando():
+    textos = iter(["Hola", "Hola, ¿qué tal?"])
+
+    def manejar(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"text": next(textos), "segments": [{"no_speech_prob": 0.01}]})
+
+    stt = STTGroqWhisper("CLAVE", "m", "es", cliente=httpx.AsyncClient(transport=httpx.MockTransport(manejar)))
+    sesion = await stt.abrir()
+    await sesion.enviar(tono(1.0))
+    sesion.adelantar()
+    await asyncio.sleep(0.01)
+    await sesion.enviar(tono(1.0))
+    assert (await sesion.finalizar(usar_adelanto=False)).texto == "Hola, ¿qué tal?"

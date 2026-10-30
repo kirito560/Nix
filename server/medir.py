@@ -27,7 +27,7 @@ from server.personaje import cargar_personaje
 from server.pipeline.frases import Segmentador
 from server.pipeline.llm import LLMGroq
 from server.pipeline.stt import STTGroqWhisper
-from server.pipeline.tts import TTSEdge
+from server.pipeline.tts import TTSEdge, crear_tts
 from shared.config_base import cargar_env
 
 MODELOS = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
@@ -43,14 +43,19 @@ def resumen(nombre: str, ms: list[float]) -> str:
     return f"{nombre:<34} p50 {percentil(ms, 50):6.0f} ms   p95 {percentil(ms, 95):6.0f} ms   (n={len(ms)})"
 
 
-async def medir_tts(tts: TTSEdge, n: int) -> list[float]:
+async def medir_tts(tts: TTSEdge, n: int, pausa_s: float = 0.0) -> list[float]:
+    """Primer audio de cada frase. Se consume la frase entera, como en una conversación."""
+    await tts.calentar()
+    await asyncio.sleep(2.0 if tts.pool is not None else 0)          # que se abran las conexiones de reserva
     tiempos = []
     for i in range(n):
-        t0 = time.monotonic()
+        await asyncio.sleep(pausa_s)
+        t0, primero = time.monotonic(), None
         async with aclosing(tts.sintetizar(FRASES_TTS[i % len(FRASES_TTS)])) as audio:
             async for _ in audio:
-                tiempos.append((time.monotonic() - t0) * 1000)
-                break
+                primero = primero or (time.monotonic() - t0) * 1000
+        tiempos.append(primero)
+    await tts.cerrar()
     return tiempos
 
 
@@ -68,7 +73,6 @@ async def medir_llm(cfg: ConfigServidor, modelo: str, sistema: str, n: int) -> t
                 t_frase = (time.monotonic() - t0) * 1000
         frase.append(t_frase if t_frase is not None else (time.monotonic() - t0) * 1000)
         ejemplo = ejemplo or f"«{PREGUNTAS[0]}» → «{texto.strip()[:140]}»"
-    await llm.http.aclose()
     return primero, frase, ejemplo
 
 
@@ -89,7 +93,6 @@ async def medir_stt(cfg: ConfigServidor, n: int) -> tuple[list[float], str]:
         datos = await stt.transcribir(audio)
         tiempos.append((time.monotonic() - t0) * 1000)
         texto = datos.get("text", "").strip()
-    await stt.http.aclose()
     return tiempos, texto
 
 
@@ -98,8 +101,12 @@ async def principal(n: int, modelos: list[str]) -> None:
     cfg = ConfigServidor.desde_entorno()
     personaje = cargar_personaje(cfg.personaje, cfg.carpeta_personajes, cfg.datos_dir)
     print(f"Midiendo con {n} repeticiones (la primera de cada proveedor incluye abrir la conexión)\n")
-    print(resumen(f"TTS edge ({cfg.tts_voz or personaje.voz})",
-                  await medir_tts(TTSEdge(cfg.tts_voz or personaje.voz, cfg.tts_velocidad), n)))
+    voz = cfg.tts_voz or personaje.voz
+    print(resumen(f"TTS edge ({voz}), sin pool", await medir_tts(TTSEdge(voz, cfg.tts_velocidad), n)))
+    tts = crear_tts(cfg, personaje.voz)
+    if getattr(tts, "pool", None) is not None:
+        print(resumen("TTS edge, conexiones listas", await medir_tts(tts, n)))
+        print(resumen("TTS edge, listas, 8 s entre frases", await medir_tts(crear_tts(cfg, personaje.voz), n, 8.0)))
     if not cfg.groq_api_key:
         print("\nSin GROQ_API_KEY en el .env: no se miden el STT ni el LLM.")
         return

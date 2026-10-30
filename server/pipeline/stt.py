@@ -41,7 +41,11 @@ class SesionSTT(abc.ABC):
     async def enviar(self, pcm16: bytes) -> None: ...
 
     @abc.abstractmethod
-    async def finalizar(self) -> Transcripcion: ...
+    async def finalizar(self, usar_adelanto: bool = False) -> Transcripcion: ...
+
+    def adelantar(self) -> None:
+        """El usuario hizo una pausa: empezar ya a transcribir lo que hay. Si la frase termina sin más voz,
+        finalizar(usar_adelanto=True) devuelve ese resultado. Solo lo hacen los STT que no son streaming."""
 
     @abc.abstractmethod
     async def cancelar(self) -> None: ...
@@ -77,7 +81,7 @@ class _SesionAcumulada(SesionSTT):
 
 
 class _SesionStub(_SesionAcumulada):
-    async def finalizar(self) -> Transcripcion:
+    async def finalizar(self, usar_adelanto: bool = False) -> Transcripcion:
         segundos = len(self.audio()) / 16000
         return Transcripcion(f"(simulado) dijiste algo de {segundos:.1f} segundos")
 
@@ -91,8 +95,31 @@ class STTStub(ProveedorSTT):
 
 # --------------------------------------------------------------------------- Groq Whisper
 class _SesionGroq(_SesionAcumulada):
-    async def finalizar(self) -> Transcripcion:
-        audio = self.audio()
+    adelanto: Optional[asyncio.Task] = None
+
+    def adelantar(self) -> None:
+        self._descartar_adelanto()
+        self.adelanto = asyncio.create_task(self._transcribir(self.audio()), name="stt-adelanto")
+
+    async def finalizar(self, usar_adelanto: bool = False) -> Transcripcion:
+        if usar_adelanto and self.adelanto is not None:
+            try:
+                return await self.adelanto
+            except Exception as e:  # noqa: BLE001 - se repite con todo el audio
+                log.debug("el adelanto del STT falló (%s); transcribo de nuevo", e)
+        self._descartar_adelanto()
+        return await self._transcribir(self.audio())
+
+    async def cancelar(self) -> None:
+        self._descartar_adelanto()
+        await super().cancelar()
+
+    def _descartar_adelanto(self) -> None:
+        if self.adelanto is not None and not self.adelanto.done():
+            self.adelanto.cancel()
+        self.adelanto = None
+
+    async def _transcribir(self, audio: np.ndarray) -> Transcripcion:
         voz = duracion_voz_s(audio)
         if voz < 0.4:
             return Transcripcion(None, f"poca voz ({voz:.2f} s)")
@@ -106,9 +133,9 @@ class STTGroqWhisper(ProveedorSTT):
     URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
     def __init__(self, api_key: str, modelo: str, idioma: str, cliente=None):
-        import httpx
+        from server.pipeline import groq_http
         self.api_key, self.modelo, self.idioma = api_key, modelo, idioma
-        self.http = cliente or httpx.AsyncClient(timeout=10.0)
+        self.http = cliente or groq_http.cliente()
 
     async def abrir(self) -> SesionSTT:
         return _SesionGroq(self)
@@ -158,7 +185,7 @@ class _SesionDeepgram(SesionSTT):
     async def enviar(self, pcm16: bytes) -> None:
         await self.ws.send(pcm16)
 
-    async def finalizar(self) -> Transcripcion:
+    async def finalizar(self, usar_adelanto: bool = False) -> Transcripcion:
         try:
             await self.ws.send(json.dumps({"type": "Finalize"}))
             # Con muy poco audio Deepgram puede no responder con from_finalize: se espera un máximo.

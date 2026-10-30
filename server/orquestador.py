@@ -43,6 +43,8 @@ Hablas en voz alta en una conversación en tiempo real: todo lo que escribas se 
 """
 
 MARGEN_REPRODUCCION_S = 0.3        # retraso de red y del búfer de audio del cliente
+# Si el LLM falla antes de decir nada (sin internet, límite de Groq...), que no se quede callada sin más.
+FRASE_SIN_CEREBRO = "Uy, se me trabó el cerebro. ¿Me lo repites?"
 TTS_EN_PARALELO = 2
 
 
@@ -150,6 +152,10 @@ class Orquestador:
             for frase in segmentador.terminar():
                 self._marcar_una_vez(turno.span, "frase_1")
                 await frases.put(frase)
+        except Exception:
+            log.exception("❌ el LLM (%s) falló", self.llm.nombre)
+            if segmentador.emitidas == 0:
+                await frases.put(FRASE_SIN_CEREBRO)
         finally:
             await frases.put(None)
 

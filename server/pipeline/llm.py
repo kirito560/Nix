@@ -52,10 +52,10 @@ class LLMGroq(ProveedorLLM):
 
     def __init__(self, api_key: str, modelo: str, max_tokens: int = 300, temperatura: float = 0.8,
                  razonamiento: str = "low", cliente=None, respaldo: str = ""):
-        import httpx
+        from server.pipeline import groq_http
         self.api_key, self.modelo, self.respaldo = api_key, modelo, respaldo
         self.max_tokens, self.temperatura, self.razonamiento = max_tokens, temperatura, razonamiento
-        self.http = cliente or httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0))
+        self.http = cliente or groq_http.cliente()
 
     def cuerpo(self, mensajes: list[dict]) -> dict:
         cuerpo = {"model": self.modelo, "messages": mensajes, "stream": True,

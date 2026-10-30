@@ -14,6 +14,7 @@ from server.config import ConfigServidor
 from server.gateway.ws_server import Gateway
 from server.orquestador import Historial, Orquestador
 from server.personaje import cargar_personaje
+from server.pipeline import groq_http
 from server.pipeline.escucha import Escucha
 from server.pipeline.llm import crear_llm
 from server.pipeline.stt import crear_stt
@@ -42,9 +43,16 @@ async def principal() -> None:
         detector = DetectorVoz(crear_puntuador(cfg.silero_onnx), umbral=cfg.vad_umbral,
                                silencio_ms=cfg.vad_silencio_ms, min_voz_ms=cfg.vad_min_voz_ms)
         orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, historial)
-        return Escucha(detector, stt, orquestador, cfg.barge_in, cfg.barge_min_voz_ms)
+        return Escucha(detector, stt, orquestador, cfg.barge_in, cfg.barge_min_voz_ms, cfg.stt_adelanto_ms)
 
-    gateway = Gateway(cfg, crear_escucha, personaje.nombre)
+    async def preparar() -> None:
+        """Al conectarse un cliente: conexiones con la voz y con Groq listas antes de que hable."""
+        await tts.calentar()
+        if cfg.groq_api_key:
+            await groq_http.mantener_viva(cfg.groq_api_key)
+
+    gateway = Gateway(cfg, crear_escucha, personaje.nombre, al_conectar=preparar)
+    calentador = asyncio.create_task(mantener_listo(cfg, gateway, tts), name="mantener-listo")
     parar = asyncio.Event()
     for senal in (signal.SIGINT, signal.SIGTERM):
         asyncio.get_running_loop().add_signal_handler(senal, parar.set)
@@ -52,7 +60,21 @@ async def principal() -> None:
         log.info("🧠 Servidor escuchando en ws://%s:%d (redes permitidas: %s)", cfg.host, cfg.puerto,
                  ", ".join(map(str, cfg.redes_permitidas)))
         await parar.wait()
+    calentador.cancel()
+    await tts.cerrar()
     log.info("👋 Servidor detenido. Latencias: %s", gateway.registro.resumen() or "sin turnos")
+
+
+async def mantener_listo(cfg: ConfigServidor, gateway: Gateway, tts, cada_s: float = 30.0) -> None:
+    """Mientras haya un cliente conectado: conexión con Groq abierta (~70 ms menos por petición) y
+    conexiones con la voz listas (~500 ms menos). Sin cliente, no se mantiene nada."""
+    while True:
+        await asyncio.sleep(cada_s)
+        if gateway.actual is None:
+            continue
+        await tts.calentar()
+        if cfg.groq_api_key:
+            await groq_http.mantener_viva(cfg.groq_api_key)
 
 
 def main() -> None:

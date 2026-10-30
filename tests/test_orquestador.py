@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 
 from server.latencia import Registro, Span
-from server.orquestador import Historial, Orquestador
+from server.orquestador import FRASE_SIN_CEREBRO, Historial, Orquestador
 from server.personaje import Personaje
 from server.pipeline.llm import ProveedorLLM
 from server.pipeline.tts import TTSStub
@@ -100,4 +100,5 @@ async def test_si_falla_el_llm_no_se_cae():
     await o.al_texto_usuario("00000000-0000-0000-0000-000000000001", "hola", span())
     await o.turno.tarea
     assert isinstance(enviados[-1], LlmText) and enviados[-1].final
-    assert not any(isinstance(m, bytes) for m in enviados)
+    dicho = [m.texto for m in enviados if isinstance(m, LlmText) and m.texto]
+    assert dicho == [FRASE_SIN_CEREBRO] and any(isinstance(m, bytes) for m in enviados)

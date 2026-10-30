@@ -4,6 +4,7 @@ a medida que se genera.
 
   - TTSEdge: edge-tts (voces neuronales de Microsoft Edge, sin clave). Entrega MP3 de 24 kHz; un proceso
     de ffmpeg lo decodifica a PCM sobre la marcha, así el primer trozo sale sin esperar a la frase entera.
+    Las conexiones con Microsoft se abren de antemano (server/pipeline/edge_pool.py): ahorra ~500 ms.
   - TTSStub: un tono suave con la duración aproximada de la frase. Para pruebas y sin internet.
 """
 from __future__ import annotations
@@ -30,6 +31,12 @@ class ProveedorTTS(abc.ABC):
 
     @abc.abstractmethod
     def sintetizar(self, texto: str) -> AsyncIterator[bytes]: ...
+
+    async def calentar(self) -> None:
+        """Deja listo lo que se pueda antes del primer turno (conexiones)."""
+
+    async def cerrar(self) -> None:
+        pass
 
 
 class TTSStub(ProveedorTTS):
@@ -60,9 +67,17 @@ class TTSEdge(ProveedorTTS):
     nombre = "edge"
 
     def __init__(self, voz: str, velocidad: str = "+0%",
-                 fuente_mp3: Optional[Callable[[str], AsyncIterator[bytes]]] = None):
-        self.voz = voz
-        self.fuente_mp3 = fuente_mp3 or _mp3_de_edge(voz, velocidad)
+                 fuente_mp3: Optional[Callable[[str], AsyncIterator[bytes]]] = None, pool=None):
+        self.voz, self.pool = voz, pool
+        self.fuente_mp3 = fuente_mp3 or (pool.mp3 if pool is not None else _mp3_de_edge(voz, velocidad))
+
+    async def calentar(self) -> None:
+        if self.pool is not None:
+            await self.pool.calentar()
+
+    async def cerrar(self) -> None:
+        if self.pool is not None:
+            await self.pool.cerrar()
 
     async def sintetizar(self, texto: str) -> AsyncIterator[bytes]:
         proc = await asyncio.create_subprocess_exec(
@@ -105,7 +120,15 @@ def crear_tts(cfg: ConfigServidor, voz_personaje: str) -> ProveedorTTS:
         except ImportError:
             disponible = False
         if disponible:
-            return TTSEdge(cfg.tts_voz or voz_personaje, cfg.tts_velocidad)
+            from server.pipeline import edge_pool
+            voz = cfg.tts_voz or voz_personaje
+            pool = None
+            if cfg.tts_conexiones > 0 and edge_pool.disponible():
+                pool = edge_pool.PoolEdge(voz, cfg.tts_velocidad, tamano=cfg.tts_conexiones,
+                                          max_ocio_s=cfg.tts_ocio_s, respaldo=_mp3_de_edge(voz, cfg.tts_velocidad))
+            elif cfg.tts_conexiones > 0:
+                log.warning("🔈 esta versión de edge-tts no permite reusar conexiones: cada frase abre una (+~500 ms)")
+            return TTSEdge(voz, cfg.tts_velocidad, pool=pool)
         log.warning("🔈 edge-tts necesita el paquete edge-tts y ffmpeg; uso la voz simulada (stub)")
     else:
         log.warning("🔈 voz simulada (stub)")

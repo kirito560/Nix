@@ -142,6 +142,10 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
   que la voz empiece antes. Se quitan emojis, markdown y acotaciones entre asteriscos.
 - **TTS:** edge-tts con la voz de la ficha (`es-MX-DaliaNeural`), decodificada a PCM de 24 kHz con ffmpeg
   sobre la marcha. Se sintetizan hasta 2 frases a la vez, así la siguiente ya está lista.
+- **Conexiones listas de antemano:** abrir la conexión con Microsoft cuesta ~470 ms y con Groq ~70 ms. Mientras
+  hay un cliente conectado (y 5 minutos después), el servidor tiene `TTS_CONEXIONES` conexión de voz abierta (renovada cada ~10 s)
+  y la de Groq viva (`server/pipeline/edge_pool.py`, `server/pipeline/groq_http.py`). Sin nadie conectado,
+  no se mantiene nada abierto.
 - **Barge-in:** si hablas mientras ella habla durante más de `BARGE_MIN_VOZ_MS` (400 ms), se calla al
   instante (el servidor manda `playback.flush` y el cliente vacía su búfer). Una frase más corta durante su
   voz se toma por eco de los altavoces y se ignora.
@@ -150,6 +154,10 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
   (`client/aec.py`) aprende el camino altavoz → habitación → micrófono y resta su voz. Tarda unos segundos
   en aprender; en pantalla sale `🎧 eco atenuado N dB` (más de 20 dB es bueno). Si la tarjeta no acepta el
   flujo doble, sigue sin AEC y lo avisa. Con audífonos no hace falta: `AEC=0` o `--sin-aec`.
+- **Transcripción adelantada:** cuando llevas `STT_ADELANTO_MS` (200 ms) callado, ya se empieza a transcribir;
+  si a los `VAD_SILENCIO_MS` (400 ms) la frase termina sin más voz, se usa ese resultado (~200 ms menos).
+- **Si Groq falla**, dice «Uy, se me trabó el cerebro. ¿Me lo repites?» en vez de quedarse callada.
+- **El cliente se reconecta solo** si se corta la conexión (1, 2, 4… hasta 30 s entre intentos).
 - Sin `GROQ_API_KEY`, el STT y el LLM son simulados (la voz sí es real).
 
 ## Seguridad

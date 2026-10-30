@@ -16,6 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 VERSION_PROTOCOLO = 1
 
+# Códigos de cierre del WebSocket (los manda el servidor)
+CIERRE_NO_AUTORIZADO = 4401      # red no permitida, token incorrecto o sin autenticar a tiempo
+CIERRE_REEMPLAZADO = 4409        # se conectó otro cliente y este quedó fuera
+
 # --------------------------------------------------------------------------- audio
 SR_ENTRADA = 16000                       # PCM16 mono 16 kHz
 MS_TRAMA = 20

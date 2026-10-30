@@ -1,10 +1,10 @@
 # Estado de Nix · bitácora
 
-> Última actualización: 2026-10-30. Al empezar cada sesión, léelo; al terminar cada tarea, actualízalo y haz commit.
+> Última actualización: 2026-10-30 (tarde). Al empezar cada sesión, léelo; al terminar cada tarea, actualízalo y haz commit.
 
 ## Estado actual
 
-**Fase 2 en curso.** La conversación completa funciona con Groq de verdad y está probada (98 pruebas): micrófono → (AEC) → VAD → STT → LLM → frases → voz → altavoces, con barge-in. Ya está todo el código de la fase 2. **Falta:** probarla en el PC con Windows (y ajustar ahí el AEC) y decidir si se paga una voz más rápida.
+**Fase 2 en curso.** La conversación completa funciona con Groq de verdad y está probada (108 pruebas): micrófono → (AEC) → VAD → STT → LLM → frases → voz → altavoces, con barge-in. Ya está todo el código de la fase 2. **Falta:** probarla en el PC con Windows (y ajustar ahí el AEC) y decidir si se paga una voz más rápida.
 
 | Fase | Contenido | Estado |
 |---|---|---|
@@ -28,6 +28,10 @@
 - **Cliente:** micrófono o WAV, altavoces o WAV de salida (`--salida`). Muestra `🗣️ tú:` y `🤖`.
 - **AEC (2026-10-30, `client/aec.py`):** flujo dúplex a 48 kHz (`AudioDuplex`): cada bloque de 20 ms del micrófono va junto con lo que sonó. PBFDAF de 13 particiones × 320 muestras (cubre 260 ms tras restar la latencia de la tarjeta), con detector de doble habla de Geigel. Con eco simulado: 34–42 dB de atenuación con retrasos de 10 a 200 ms; falla con 300 ms (por eso se resta la latencia de la tarjeta, o se fija con `AEC_RETRASO_MS`). Con el usuario hablando encima, su voz pasa casi intacta (correlación 0,96–0,997). Con una tarjeta falsa, de punta a punta: 28 dB tras converger. **Sin probar con micrófono y altavoces reales.**
 - **Servicio (2026-10-29):** `nix.service` (servicio de usuario, `despliegue/nix.service`) activo y habilitado: arranca solo, se reinicia si falla, `MemoryMax=1G`. Registro: `journalctl --user -u nix -f`.
+- **Conexiones listas (2026-10-30):** mientras hay un cliente conectado (y 5 min después), una conexión con edge-tts abierta y renovada cada ~10 s (Microsoft cierra las inactivas entre 15 y 45 s, con o sin ping; medido), y la de Groq viva con una petición cada 30 s (Groq la mantiene al menos 3 min). `server/pipeline/edge_pool.py` (usa funciones internas de edge-tts 7.3.1; si cambian, vuelve al modo normal) y `server/pipeline/groq_http.py`.
+- **Transcripción adelantada (2026-10-30):** a los 200 ms de silencio se transcribe por adelantado; se usa si la frase termina sin más voz (`STT_ADELANTO_MS`).
+- **Si el LLM falla**, dice «Uy, se me trabó el cerebro. ¿Me lo repites?».
+- **El cliente se reconecta solo** (1, 2, 4… 30 s); no reintenta con el token mal ni si otro cliente lo reemplazó.
 - **Medición:** `python -m server.medir` mide el STT, cada modelo de LLM y el TTS por separado.
 - **Prueba real en el servidor (2026-10-29):** cliente → servidor en `127.0.0.1` con un WAV hablado, todo real (Groq Whisper, Qwen, Dalia). Transcribió perfecto «Hola Nix, ¿qué opinas de la pizza con piña?» las 6 veces.
 
@@ -45,22 +49,20 @@
 
 Los modelos `llama-3.1-8b-instant` y `llama-3.3-70b-versatile` aparecen en la documentación, pero **esta cuenta no tiene acceso** (404). Los disponibles: `qwen/qwen3.8-27b`, `openai/gpt-oss-120b`, `openai/gpt-oss-20b` y otros que no sirven aquí.
 
-**Conversación completa** (6 turnos reales con un WAV, en el servidor):
+**Conversación completa** (6 turnos reales con un WAV contra el servicio, 8 s de pausa entre turnos), p50:
 
-| Etapa | p50 | p95 |
-|---|---|---|
-| silencio que espera el VAD | 420 ms | 422 ms |
-| STT | 431 ms | 452 ms |
-| LLM hasta el 1er token | 266 ms | 507 ms |
-| 1er token → 1ª frase | 14 ms | 19 ms |
-| TTS hasta el 1er audio | 860 ms | 2709 ms (un caso lento de edge-tts) |
-| **Total desde que dejas de hablar** | **2052 ms** | 3926 ms |
-| **Desde que el VAD cierra la frase** | **1632 ms** | 3506 ms |
+| Etapa | 2026-10-29 | 2026-10-30 (mejoras) | Qué cambió |
+|---|---|---|---|
+| silencio que espera el VAD | 420 ms | 421 ms | (igual: `VAD_SILENCIO_MS=400`) |
+| STT | 431 ms | **265 ms** | transcripción adelantada a los 200 ms de silencio + conexión con Groq viva |
+| LLM hasta el 1er token | 266 ms | 224 ms | conexión con Groq viva (httpx la cerraba a los 5 s) |
+| TTS hasta el 1er audio | 860 ms | **193 ms** | conexiones con edge-tts abiertas de antemano (abrir una cuesta ~470 ms) |
+| **Total desde que dejas de hablar** | **2052 ms** | **1094 ms** (p95 1404) | |
+| **Desde que el VAD cierra la frase** | 1632 ms | **683 ms** (p95 982) | |
 
-**Conclusión: no llegamos a ~500 ms.** La voz (edge-tts, ~800 ms) es más de la mitad del tiempo. El STT de Groq, sin streaming, suma otros ~430 ms. Estimación con servicios de pago (por confirmar midiendo):
-- Con voz rápida (~100 ms): unos 1,2 s desde que dejas de hablar y unos 0,8 s desde que cierra el VAD.
-- Además, con STT Deepgram en streaming (~100 ms tras cerrar la frase): unos 0,9 s y **~0,5 s desde que cierra el VAD**.
-- Bajar `VAD_SILENCIO_MS` a 250–300 ahorra 100–150 ms más, con el riesgo de cortar frases en las pausas.
+**¿Llegamos a ~500 ms?** Desde que el VAD cierra la frase, casi (683 ms), sin pagar nada. Desde que dejas de hablar, 1,1 s: casi la mitad es la espera del VAD (420 ms).
+- Bajar `VAD_SILENCIO_MS` a 300 ahorra 100 ms, con el riesgo de que responda en las pausas a media frase.
+- Lo que sigue pesando es el STT por frase de Groq (~370 ms por petición). Con STT en streaming (Deepgram) y voz de pago (~100 ms) se estimaba ~0,5 s desde que cierra el VAD; con edge-tts ya en ~190 ms, la ganancia de una voz de pago es mucho menor que antes (~100 ms).
 
 ## Decisiones tomadas
 
@@ -89,7 +91,7 @@ Los modelos `llama-3.1-8b-instant` y `llama-3.3-70b-versatile` aparecen en la do
 2. ~~Firewall~~ ✅ comprobado: `8765/tcp ALLOW IN 192.168.1.0/24`.
    ⚠️ **Seguridad:** SSH (puerto 22) está abierto a cualquier dirección y acepta contraseñas (`passwordauthentication yes`). Kirito debe cambiar su contraseña (`passwd`) y, después, pasar a entrar solo con llave.
 3. **Probar el cliente en Windows** (guía en el README, «Cliente (Windows)»).
-4. **Decidir la voz de pago** si se quiere bajar a ~500 ms (abajo).
+4. **Decidir la voz de pago:** ya no hace tanta falta (edge-tts quedó en ~190 ms con las conexiones listas); lo que más ganaría ahora es STT en streaming (Deepgram).
 5. Fase 7: credenciales de Discord, Telegram y Twitch (`narchan_`).
 
 ### Decisiones pendientes: voz más rápida (precios consultados el 2026-10-28)
@@ -118,3 +120,4 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
 - 2026-10-29: clave de Groq puesta. Medición real con `server.medir` y 6 conversaciones completas en el servidor (2,05 s p50 desde que dejas de hablar). LLM cambiado a `qwen/qwen3.8-27b` con respaldo automático a `gpt-oss-120b`.
 - 2026-10-29: firewall comprobado (ya estaba bien). Nix instalada como servicio de usuario `nix` y probada contra 192.168.1.50.
 - 2026-10-30: AEC en el cliente (`client/aec.py`, `AudioDuplex`), probado con eco simulado y con una tarjeta falsa. Código de la fase 2 completo.
+- 2026-10-30: mejoras de latencia (de 2,05 s a 1,09 s p50): conexiones con edge-tts listas, Groq con conexión viva, transcripción adelantada. Frase de disculpa si falla el LLM. Reconexión automática del cliente.

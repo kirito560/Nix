@@ -32,6 +32,7 @@ class ConfigServidor:
     vad_umbral: float = 0.5
     vad_silencio_ms: float = 400.0
     vad_min_voz_ms: float = 250.0
+    stt_adelanto_ms: float = 200.0            # 0 = no adelantar la transcripción
     # LLM
     llm_proveedor: str = "auto"               # auto | groq | stub
     llm_modelo: str = "qwen/qwen3.8-27b"
@@ -44,6 +45,8 @@ class ConfigServidor:
     tts_proveedor: str = "auto"               # auto | edge | stub
     tts_voz: str = ""                         # vacío = la voz de la ficha del personaje
     tts_velocidad: str = "+0%"
+    tts_conexiones: int = 1                   # conexiones con edge-tts abiertas de antemano (0 = abrir en cada frase)
+    tts_ocio_s: float = 12.0                  # Microsoft cierra las inactivas entre 15 y 45 s
     # Barge-in: interrumpirla hablando. Con altavoces, su propia voz puede volver por el micrófono:
     # mientras habla, una frase solo cuenta si dura al menos BARGE_MIN_VOZ_MS; si no, se toma por eco.
     barge_in: bool = True
@@ -73,6 +76,7 @@ class ConfigServidor:
             vad_umbral=e.decimal("VAD_UMBRAL", 0.5),
             vad_silencio_ms=e.decimal("VAD_SILENCIO_MS", 400.0),
             vad_min_voz_ms=e.decimal("VAD_MIN_VOZ_MS", 250.0),
+            stt_adelanto_ms=e.decimal("STT_ADELANTO_MS", 200.0),
             llm_proveedor=e.texto("LLM_PROVEEDOR", "auto").lower(),
             llm_modelo=e.texto("LLM_MODELO", "qwen/qwen3.8-27b"),
             llm_modelo_respaldo=e.texto("LLM_MODELO_RESPALDO", "openai/gpt-oss-120b"),
@@ -83,6 +87,8 @@ class ConfigServidor:
             tts_proveedor=e.texto("TTS_PROVEEDOR", "auto").lower(),
             tts_voz=e.texto("TTS_VOZ"),
             tts_velocidad=e.texto("TTS_VELOCIDAD", "+0%"),
+            tts_conexiones=e.entero("TTS_CONEXIONES", 1),
+            tts_ocio_s=e.decimal("TTS_OCIO_S", 12.0),
             barge_in=e.booleano("BARGE_IN", True),
             barge_min_voz_ms=e.decimal("BARGE_MIN_VOZ_MS", 400.0),
             vision_habilitada=e.booleano("VISION_HABILITADA", False),

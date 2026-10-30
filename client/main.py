@@ -13,6 +13,8 @@ import argparse
 import asyncio
 import logging
 import sys
+import time
+from contextlib import aclosing
 from pathlib import Path
 
 from websockets.exceptions import ConnectionClosed
@@ -21,7 +23,7 @@ from client.audio_io import Altavoz, ArchivoWav, AudioDuplex, GrabadorWav
 from client.ws_client import ErrorAutenticacion, ejecutar
 from shared.auth import validar_token
 from shared.config_base import Entorno, cargar_env
-from shared.protocol import LlmText, PlaybackFlush, SttText
+from shared.protocol import CIERRE_NO_AUTORIZADO, CIERRE_REEMPLAZADO, LlmText, PlaybackFlush, SttText
 
 log = logging.getLogger("nix.cliente")
 
@@ -74,10 +76,13 @@ def main() -> None:
         fuente = salida = AudioDuplex(_dispositivo(args.dispositivo), _dispositivo(args.altavoz),
                                       aec=not args.sin_aec, retraso_ms=float(retraso) if retraso else None)
         print("🎤 Habla cuando quieras (Ctrl+C para salir).")
+    al_audio = lambda _turno, _pts, sr, pcm: salida.reproducir(sr, pcm)  # noqa: E731
     try:
-        asyncio.run(ejecutar(args.servidor, token, fuente.tramas(), crear_mostrar(salida),
-                             espera_final_s=args.espera,
-                             al_audio=lambda _turno, _pts, sr, pcm: salida.reproducir(sr, pcm)))
+        if args.wav:
+            asyncio.run(ejecutar(args.servidor, token, fuente.tramas(), crear_mostrar(salida),
+                                 espera_final_s=args.espera, al_audio=al_audio))
+        else:
+            asyncio.run(conversar_siempre(args.servidor, token, fuente, salida, al_audio))
     except ErrorAutenticacion as err:
         log.error("❌ autenticación: %s", err)
         sys.exit(1)
@@ -91,6 +96,31 @@ def main() -> None:
         pass
     finally:
         salida.cerrar()
+
+
+async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, al_audio) -> None:
+    """Con el micrófono: si se corta la conexión (reinicio del servidor, Wi-Fi...), se reconecta sola,
+    esperando 1, 2, 4... hasta 30 s. No reintenta si el token es incorrecto o si otro cliente la reemplazó."""
+    espera = 1.0
+    while True:
+        inicio = time.monotonic()
+        try:
+            async with aclosing(fuente.tramas()) as tramas:
+                await ejecutar(url, token, tramas, crear_mostrar(salida), al_audio=al_audio)
+            return
+        except ConnectionClosed as err:
+            codigo = err.rcvd.code if err.rcvd else None
+            if codigo in (CIERRE_NO_AUTORIZADO, CIERRE_REEMPLAZADO):
+                raise
+            motivo = "el servidor cerró la conexión"
+        except OSError as err:
+            motivo = f"no pude conectar ({err})"
+        salida.vaciar()
+        if time.monotonic() - inicio > 60:
+            espera = 1.0
+        log.warning("🔌 %s; reintento en %.0f s", motivo, espera)
+        await asyncio.sleep(espera)
+        espera = min(espera * 2, 30.0)
 
 
 def _dispositivo(valor):
