@@ -1,15 +1,15 @@
 # Estado de Nix · bitácora
 
-> Última actualización: 2026-10-29. Al empezar cada sesión, léelo; al terminar cada tarea, actualízalo y haz commit.
+> Última actualización: 2026-10-30. Al empezar cada sesión, léelo; al terminar cada tarea, actualízalo y haz commit.
 
 ## Estado actual
 
-**Fase 2 en curso.** La conversación completa funciona con Groq de verdad y está probada (93 pruebas): micrófono → VAD → STT → LLM → frases → voz → altavoces, con barge-in. **Falta:** la cancelación de eco (AEC), la primera prueba en el PC con Windows y decidir si se paga una voz más rápida.
+**Fase 2 en curso.** La conversación completa funciona con Groq de verdad y está probada (98 pruebas): micrófono → (AEC) → VAD → STT → LLM → frases → voz → altavoces, con barge-in. Ya está todo el código de la fase 2. **Falta:** probarla en el PC con Windows (y ajustar ahí el AEC) y decidir si se paga una voz más rápida.
 
 | Fase | Contenido | Estado |
 |---|---|---|
 | 1 | Esqueleto, VAD, STT en streaming, eco del texto, latencia por etapa | ✅ |
-| 2 | LLM + TTS en streaming, orquestador, barge-in, AEC | 🟡 hecho salvo AEC; medido con Groq |
+| 2 | LLM + TTS en streaming, orquestador, barge-in, AEC | 🟡 código completo; falta la prueba en el PC |
 | 3 | Motor emocional | pendiente |
 | 4 | Memoria de tres niveles | pendiente |
 | 5 | Heartbeat y percepción | pendiente |
@@ -25,7 +25,8 @@
 - **TTS (fase 2):** edge-tts `es-MX-DaliaNeural` → ffmpeg → PCM de 24 kHz en trozos de 100 ms (`server/pipeline/tts.py`). Sintetiza hasta 2 frases a la vez.
 - **Orquestador (fase 2):** `server/orquestador.py`. Turnos con 3 tareas encadenadas (pensar, sintetizar, emitir), historial y latencia por etapa.
 - **Barge-in (fase 2):** si el usuario habla más de 400 ms mientras ella habla, el servidor cancela el turno y manda `playback.flush`; el cliente se calla al instante. Si la frase es más corta, se toma por eco y se descarta sin transcribirla.
-- **Cliente:** micrófono o WAV, altavoces (`Altavoz`) o WAV de salida (`--salida`). Muestra `🗣️ tú:` y `🤖`.
+- **Cliente:** micrófono o WAV, altavoces o WAV de salida (`--salida`). Muestra `🗣️ tú:` y `🤖`.
+- **AEC (2026-10-30, `client/aec.py`):** flujo dúplex a 48 kHz (`AudioDuplex`): cada bloque de 20 ms del micrófono va junto con lo que sonó. PBFDAF de 13 particiones × 320 muestras (cubre 260 ms tras restar la latencia de la tarjeta), con detector de doble habla de Geigel. Con eco simulado: 34–42 dB de atenuación con retrasos de 10 a 200 ms; falla con 300 ms (por eso se resta la latencia de la tarjeta, o se fija con `AEC_RETRASO_MS`). Con el usuario hablando encima, su voz pasa casi intacta (correlación 0,96–0,997). Con una tarjeta falsa, de punta a punta: 28 dB tras converger. **Sin probar con micrófono y altavoces reales.**
 - **Servicio (2026-10-29):** `nix.service` (servicio de usuario, `despliegue/nix.service`) activo y habilitado: arranca solo, se reinicia si falla, `MemoryMax=1G`. Registro: `journalctl --user -u nix -f`.
 - **Medición:** `python -m server.medir` mide el STT, cada modelo de LLM y el TTS por separado.
 - **Prueba real en el servidor (2026-10-29):** cliente → servidor en `127.0.0.1` con un WAV hablado, todo real (Groq Whisper, Qwen, Dalia). Transcribió perfecto «Hola Nix, ¿qué opinas de la pizza con piña?» las 6 veces.
@@ -69,7 +70,8 @@ Los modelos `llama-3.1-8b-instant` y `llama-3.3-70b-versatile` aparecen en la do
 - **LLM = Groq `qwen/qwen3.8-27b`** (2026-10-29, por medición: el primer token más rápido con buen español). Riesgos: está en vista previa (Groq puede retirarlo; por eso el respaldo automático a `openai/gpt-oss-120b`) y en 1 de 6 pruebas soltó una frase sin sentido («Aíto de los takes»). Si eso se repite, o por costo, se cambia a `LLM_MODELO=openai/gpt-oss-120b` (+~140 ms).
 - **TTS = edge-tts `es-MX-DaliaNeural`** (2026-10-28, Kirito).
 - **El audio se decodifica en el servidor** (ffmpeg) y viaja como PCM: el cliente de Windows no necesita ffmpeg.
-- **Protección contra el eco sin AEC:** mientras ella habla, una frase necesita 400 ms de voz para contar. Se recomiendan audífonos hasta tener AEC.
+- **Protección contra el eco:** AEC en el cliente y, además, en el servidor una frase necesita 400 ms de voz para interrumpirla mientras ella habla.
+- **AEC en el cliente, no en el servidor:** solo el PC sabe exactamente qué sonó y cuándo; el flujo dúplex da esa alineación muestra a muestra.
 - **Visión apagada por defecto** (`VISION_HABILITADA=0`).
 - **Git:** deploy key `~/.ssh/nix_deploy` (`core.sshCommand` en `.git/config`). El repositorio `kirito560/Nix` es **público**: nunca subir `.env` ni datos personales.
 - **Idioma:** todo en español.
@@ -107,7 +109,7 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
 
 1. Primera conversación real desde el PC con Windows, con audífonos (escuchar si Qwen convence o se cambia a `gpt-oss-120b`).
 2. Kirito decide si paga una voz más rápida (y STT en streaming) para acercarse a ~500 ms.
-3. Cerrar la fase 2: **AEC** en el cliente (cancelación de eco con la señal que se reproduce como referencia; necesita el PC para medir el retraso entre altavoz y micrófono) y, si Kirito decide, un TTS más rápido.
+3. Con el PC: probar el AEC con altavoces (mirar `🎧 eco atenuado`; si es bajo, ajustar `AEC_RETRASO_MS`). Con eso se cierra la fase 2.
 
 ## Historial
 
@@ -115,3 +117,4 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
 - 2026-10-28: fase 2 (sin AEC): LLM Groq, frases, TTS edge-tts, orquestador, barge-in con protección contra el eco, cliente con altavoces, `server.medir`. STT fijado a Groq. Guía del cliente de Windows en el README.
 - 2026-10-29: clave de Groq puesta. Medición real con `server.medir` y 6 conversaciones completas en el servidor (2,05 s p50 desde que dejas de hablar). LLM cambiado a `qwen/qwen3.8-27b` con respaldo automático a `gpt-oss-120b`.
 - 2026-10-29: firewall comprobado (ya estaba bien). Nix instalada como servicio de usuario `nix` y probada contra 192.168.1.50.
+- 2026-10-30: AEC en el cliente (`client/aec.py`, `AudioDuplex`), probado con eco simulado y con una tarjeta falsa. Código de la fase 2 completo.

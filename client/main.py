@@ -17,7 +17,7 @@ from pathlib import Path
 
 from websockets.exceptions import ConnectionClosed
 
-from client.audio_io import Altavoz, ArchivoWav, GrabadorWav, Microfono
+from client.audio_io import Altavoz, ArchivoWav, AudioDuplex, GrabadorWav
 from client.ws_client import ErrorAutenticacion, ejecutar
 from shared.auth import validar_token
 from shared.config_base import Entorno, cargar_env
@@ -51,6 +51,8 @@ def main() -> None:
     ap.add_argument("--altavoz", default=e.texto("ALTAVOZ_DISPOSITIVO") or None,
                     help="índice o nombre de la salida de audio (ver --listar)")
     ap.add_argument("--salida", type=Path, help="guardar la voz del personaje en este WAV en vez de reproducirla")
+    ap.add_argument("--sin-aec", action="store_true", default=not e.booleano("AEC", True),
+                    help="no cancelar el eco de los altavoces (con audífonos no hace falta)")
     ap.add_argument("--espera", type=float, default=20.0,
                     help="con --wav: segundos que espera la respuesta al acabar el archivo")
     ap.add_argument("--listar", action="store_true", help="listar dispositivos de audio y salir")
@@ -66,11 +68,12 @@ def main() -> None:
         sys.exit(1)
     if args.wav:
         fuente = ArchivoWav(args.wav)
+        salida = GrabadorWav(args.salida) if args.salida else Altavoz(_dispositivo(args.altavoz))
     else:
-        fuente = Microfono(_dispositivo(args.dispositivo))
-        print("🎤 Habla cuando quieras (Ctrl+C para salir). Con altavoces, mejor usa audífonos: "
-              "así su voz no vuelve por el micrófono.")
-    salida = GrabadorWav(args.salida) if args.salida else Altavoz(_dispositivo(args.altavoz))
+        retraso = e.texto("AEC_RETRASO_MS")
+        fuente = salida = AudioDuplex(_dispositivo(args.dispositivo), _dispositivo(args.altavoz),
+                                      aec=not args.sin_aec, retraso_ms=float(retraso) if retraso else None)
+        print("🎤 Habla cuando quieras (Ctrl+C para salir).")
     try:
         asyncio.run(ejecutar(args.servidor, token, fuente.tramas(), crear_mostrar(salida),
                              espera_final_s=args.espera,

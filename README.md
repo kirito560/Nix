@@ -144,8 +144,12 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
   sobre la marcha. Se sintetizan hasta 2 frases a la vez, así la siguiente ya está lista.
 - **Barge-in:** si hablas mientras ella habla durante más de `BARGE_MIN_VOZ_MS` (400 ms), se calla al
   instante (el servidor manda `playback.flush` y el cliente vacía su búfer). Una frase más corta durante su
-  voz se toma por eco de los altavoces y se ignora. **Todavía no hay cancelación de eco (AEC):** usa
-  audífonos; con altavoces, su voz puede volver por el micrófono.
+  voz se toma por eco de los altavoces y se ignora.
+- **Cancelación de eco (AEC, en el cliente):** micrófono y altavoz van en un solo flujo de audio a 48 kHz,
+  así cada trozo del micrófono llega junto con lo que sonaba en ese momento. Un filtro adaptativo
+  (`client/aec.py`) aprende el camino altavoz → habitación → micrófono y resta su voz. Tarda unos segundos
+  en aprender; en pantalla sale `🎧 eco atenuado N dB` (más de 20 dB es bueno). Si la tarjeta no acepta el
+  flujo doble, sigue sin AEC y lo avisa. Con audífonos no hace falta: `AEC=0` o `--sin-aec`.
 - Sin `GROQ_API_KEY`, el STT y el LLM son simulados (la voz sí es real).
 
 ## Seguridad
