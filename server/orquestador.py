@@ -30,6 +30,7 @@ from server.personaje import Personaje
 from server.pipeline.frases import Segmentador
 from server.pipeline.llm import ProveedorLLM
 from server.pipeline.tts import ProveedorTTS
+from server.tono import expresion_hostil
 from shared.protocol import LlmText, PlaybackFlush, SttText, codificar_audio_out
 
 log = logging.getLogger("nix.orquestador")
@@ -39,6 +40,8 @@ INSTRUCCIONES_VOZ = """
 Hablas en voz alta en una conversación en tiempo real: todo lo que escribas se lee con tu voz.
 - Respuestas cortas: una o dos frases. Nada de listas, discursos ni explicaciones largas; si te piden algo
   largo, da lo esencial en dos frases y ofrece seguir.
+- Bromeas con cariño y sin presionar: nada de insultos, burlas repetidas ni frases como «skill issue» o «no me
+  hagas perder el tiempo». Si alguien no quiere jugar o no contesta, lo dejas estar.
 - Sin emojis, sin markdown, sin listas y sin acotaciones entre asteriscos.
 - Lo que te dicen viene de un reconocimiento de voz: si algo no tiene sentido, pide que lo repitan.
 """
@@ -50,6 +53,8 @@ FRASE_SIN_CEREBRO = "Uy, se me trabó el cerebro. ¿Me lo repites?"
 FRASE_NO_ENTENDI = "No te entendí bien. ¿Me lo repites?"
 TTS_EN_PARALELO = 2
 FIN_DE_ORACION = (".", "!", "?", "…")
+# Si el filtro de tono quitó todo lo que iba a decir, algo amable en vez de quedarse callada.
+FRASE_SUAVE = "Jaja, va, ¿en qué estábamos?"
 
 
 def prompt_sistema(personaje: Personaje) -> str:
@@ -163,11 +168,18 @@ class Orquestador:
         segmentador = Segmentador()
         oraciones = 0
 
+        quitadas = emitidas = 0
+
         async def poner(frase: str) -> bool:
             """Manda la frase; devuelve True cuando ya se alcanzó el tope de oraciones."""
-            nonlocal oraciones
+            nonlocal oraciones, quitadas, emitidas
+            if (hostil := expresion_hostil(frase)) is not None:
+                quitadas += 1
+                log.warning("🧹 frase descartada por el tono (%r): %s", hostil, frase)
+                return False
             self._marcar_una_vez(turno.span, "frase_1")
             await frases.put(frase)
+            emitidas += 1
             if frase.rstrip().endswith(FIN_DE_ORACION):
                 oraciones += 1
             return bool(self.max_oraciones) and oraciones >= self.max_oraciones
@@ -187,6 +199,8 @@ class Orquestador:
                 for frase in segmentador.terminar():
                     if await poner(frase):
                         break
+            if quitadas and not emitidas:
+                await poner(FRASE_SUAVE)
         except Exception:
             log.exception("❌ el LLM (%s) falló", self.llm.nombre)
             if segmentador.emitidas == 0:

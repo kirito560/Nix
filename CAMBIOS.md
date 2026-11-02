@@ -317,3 +317,17 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - **Tope duro de 2 oraciones** (`RESPUESTA_MAX_ORACIONES`, variable nueva). Al terminar la 2.ª oración se cierra el
   stream del LLM: no se paga ni se dice el resto.
   - *Duda:* el tope por oraciones podía ser demasiado. Lo dejé porque el prompt solo no basta. Con 0 se apaga.
+
+## 2. Tono (`personajes/nix.md`, `server/tono.py`, orquestador)
+
+- **Ficha de Nix:**
+  - «burlona» pasa a «bromista»;
+  - se quitó «skill issue» de su jerga;
+  - «lo pica todo el tiempo» pasa a «le hace bromas de vez en cuando, con cariño»;
+  - límites nuevos: nada de insultos ni de burlas repetidas, ni de broma, y no presionar.
+- **Instrucciones de voz:** bromas con cariño y sin presionar, con ejemplos de lo que no debe decir.
+- **Red de seguridad (`server/tono.py`):** una lista corta de insultos y frases hirientes («skill issue», «no me
+  hagas perder el tiempo», «manco», «noob», «idiota»…). Si una frase del LLM contiene una, **no se dice** y queda en
+  el log («🧹 frase descartada por el tono»). Si se quitara todo, dice «Jaja, va, ¿en qué estábamos?».
+  - *Duda:* palabras como «tonto» pueden salir sin mala intención («me hice el tonto»). Elegí quitarlas igual: es
+    mejor perder una frase que decir algo que suene feo.
