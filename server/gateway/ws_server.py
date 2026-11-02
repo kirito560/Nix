@@ -78,9 +78,13 @@ class Gateway:
         self.cfg, self.crear_escucha, self.nombre_personaje = cfg, crear_escucha, nombre_personaje
         self.al_conectar = al_conectar
         self.vista = vista                       # server.vision.Vista: recibe lo que el cliente ve de la pantalla
-        self.sesion = EstadoSesion()             # estado de la conexión actual (presencia...); se olvida al cerrar
+        self.sesion = self._sesion_nueva()       # estado de la conexión actual (historial, presencia...)
         self.registro = Registro()
         self.actual: ServerConnection | None = None
+
+    def _sesion_nueva(self) -> EstadoSesion:
+        """Cada conexión empieza con su propio estado; al cerrarse se tira (historial incluido)."""
+        return EstadoSesion(self.cfg.historial_turnos)
 
     def servir(self):
         """Devuelve el servidor de websockets (usar con `async with`)."""
@@ -98,7 +102,7 @@ class Gateway:
             log.info("🔁 nueva conexión; cierro la anterior")
             await self.actual.close(CIERRE_REEMPLAZADO, "reemplazada")
         self.actual = ws
-        self.sesion = EstadoSesion()
+        self.sesion = self._sesion_nueva()
         if self.al_conectar is not None:
             asyncio.create_task(self.al_conectar(), name="al-conectar")
 
@@ -127,7 +131,7 @@ class Gateway:
             await escucha.cerrar()
             if self.actual is ws:
                 self.actual = None
-                self.sesion = EstadoSesion()
+                self.sesion = self._sesion_nueva()
             log.info("🔌 cliente %s desconectado", ip)
 
     async def _autenticar(self, ws: ServerConnection, ip: str) -> bool:

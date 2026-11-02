@@ -344,3 +344,14 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - Ya existía: confianza baja de Whisper → pedir repetir; texto vacío o de un carácter → se ignora.
 - Las frases fijas quedaron en **una sola oración**: «Perdón, no te entendí bien, ¿me lo repites?» y «Uy, se me
   trabó el cerebro, ¿me lo repites?».
+
+## 4. Memoria de sesión
+
+- **El historial deja de ser de todo el servidor y pasa a la sesión** (`EstadoSesion.historial`). Antes
+  sobrevivía a las reconexiones; ahora cada conexión del PC empieza vacía y, al desconectarse, se tira.
+- Se guardan los **últimos 10 turnos** (`HISTORIAL_TURNOS=10`, que ya existía; cada turno es lo que dijiste más lo
+  que respondió Nix) y van como contexto al LLM.
+- Las frases fijas («no te entendí», «se me trabó») no entran. Nada se guarda en disco ni en memoria de largo
+  plazo.
+  - *Duda:* un corte de Wi-Fi de un segundo también borra la conversación. Es lo que pediste («se borran al
+    desconectarse») y es lo más simple.

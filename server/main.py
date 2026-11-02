@@ -12,7 +12,7 @@ import sys
 
 from server.config import ConfigServidor
 from server.gateway.ws_server import Gateway
-from server.orquestador import Historial, Orquestador
+from server.orquestador import Orquestador
 from server.personaje import cargar_personaje
 from server.pipeline import groq_http
 from server.pipeline.escucha import Escucha
@@ -38,7 +38,6 @@ async def principal() -> None:
              f" ({cfg.llm_modelo})" if llm.nombre != "stub" else "", tts.nombre,
              f" ({getattr(tts, 'voz', '')})" if tts.nombre != "stub" else "")
     log.info("✋ Barge-in: %s", f"sí (mínimo {cfg.barge_min_voz_ms:.0f} ms de voz)" if cfg.barge_in else "no")
-    historial = Historial(cfg.historial_turnos)
     vista = Vista(crear_vision(cfg), ResumenPantalla(cfg.vision_max_tokens)) if cfg.vision_habilitada else None
     if vista is not None:
         log.info("👁️ Visión: %s (%s), resumen de pantalla de hasta %d tokens", vista.proveedor.nombre,
@@ -53,7 +52,8 @@ async def principal() -> None:
     def crear_escucha(enviar):
         detector = DetectorVoz(crear_puntuador(cfg.silero_onnx), umbral=cfg.vad_umbral,
                                silencio_ms=cfg.vad_silencio_ms, min_voz_ms=cfg.vad_min_voz_ms)
-        orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, historial, contexto=contexto,
+        orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, gateway.sesion.historial,
+                                  contexto=contexto,
                                   max_oraciones=cfg.respuesta_max_oraciones)
         return Escucha(detector, stt, orquestador, cfg.barge_in, cfg.barge_min_voz_ms, cfg.stt_adelanto_ms)
 

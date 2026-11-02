@@ -64,8 +64,8 @@ def prompt_sistema(personaje: Personaje) -> str:
 
 
 class Historial:
-    """Últimos turnos de la conversación (solo en memoria; la memoria de verdad llega en la fase 4).
-    Es del servidor, no de la conexión: sobrevive a que el cliente se reconecte."""
+    """Últimos turnos de la conversación actual (solo en memoria). Vive en el estado de la sesión
+    (server/sesion.py): se borra al desconectarse el PC y nunca va a una memoria de largo plazo."""
 
     def __init__(self, max_turnos: int):
         self.mensajes: deque[dict] = deque(maxlen=max(2, max_turnos * 2))
