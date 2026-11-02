@@ -36,22 +36,25 @@ CADA_S_NIVEL = 10.0
 
 
 class MedidorNivel:
-    """Resume cada `cada_s` cuánto audio llegó del micrófono y a qué volumen (para ver si el micrófono
-    elegido en el PC es el correcto: por debajo de ~-60 dBFS es prácticamente silencio)."""
+    """Cada `cada_s` resume lo que llegó del micrófono del cliente: segundos de audio, volumen RMS y pico en
+    dBFS, y cuántas veces detectó voz el VAD. Por debajo de ~-50 dBFS de pico es prácticamente silencio
+    (micrófono equivocado o silenciado)."""
 
-    def __init__(self, cada_s: float = CADA_S_NIVEL):
+    def __init__(self, cada_s: float = CADA_S_NIVEL, ahora: float | None = None):
         self.cada_s = cada_s
-        self._reiniciar(time.monotonic())
+        self.voces_al_inicio = 0
+        self._reiniciar(time.monotonic() if ahora is None else ahora)
 
     def _reiniciar(self, ahora: float) -> None:
         self.desde, self.muestras, self.energia, self.pico = ahora, 0, 0.0, 0
 
-    def agregar(self, pcm16: bytes, ahora: float | None = None) -> Optional[str]:
+    def agregar(self, pcm16: bytes, ahora: float | None = None, voces: int = 0) -> Optional[str]:
+        """`voces`: el total de voces detectadas hasta ahora (se resta el del inicio de la ventana)."""
         ahora = time.monotonic() if ahora is None else ahora
         x = np.frombuffer(pcm16, "<i2")
         if len(x):
             self.muestras += len(x)
-            self.energia += float(np.sum(x.astype(np.float64) ** 2))
+            self.energia += float(np.dot(x.astype(np.float64), x.astype(np.float64)))
             self.pico = max(self.pico, int(np.max(np.abs(x.astype(np.int32)))))
         if ahora - self.desde < self.cada_s:
             return None
@@ -59,9 +62,11 @@ class MedidorNivel:
         rms = np.sqrt(self.energia / max(self.muestras, 1)) / 32768
         db = 20 * np.log10(rms + 1e-9)
         pico_db = 20 * np.log10(self.pico / 32768 + 1e-9)
+        nuevas = voces - self.voces_al_inicio
+        self.voces_al_inicio = voces
         aviso = "  ⚠️ casi silencio: ¿micrófono equivocado o silenciado?" if pico_db < -50 else ""
-        texto = (f"🎚️ micrófono: {segundos:.1f} s de audio en {ahora - self.desde:.0f} s | nivel {db:.0f} dBFS, "
-                 f"pico {pico_db:.0f} dBFS{aviso}")
+        texto = (f"🎚️ micrófono: {segundos:.1f} s de audio en {ahora - self.desde:.0f} s | RMS {db:.0f} dBFS, "
+                 f"pico {pico_db:.0f} dBFS | voz detectada {nuevas} {'vez' if nuevas == 1 else 'veces'}{aviso}")
         self._reiniciar(ahora)
         return texto
 
@@ -107,7 +112,7 @@ class Gateway:
                     except ErrorProtocolo as e:
                         log.warning("audio.in inválido: %s", e)
                         continue
-                    if (resumen := medidor.agregar(pcm)) is not None:
+                    if (resumen := medidor.agregar(pcm, voces=escucha.voces_detectadas)) is not None:
                         log.info(resumen)
                     await escucha.recibir_audio(pcm)
                 else:

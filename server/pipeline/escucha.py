@@ -42,6 +42,7 @@ class Escucha:
         self.cola: asyncio.Queue | None = None
         self.tareas: set[asyncio.Task] = set()
         self.pendiente_de_barge = False      # la frase en curso empezó mientras el personaje hablaba
+        self.voces_detectadas = 0            # frases que el VAD empezó (para el medidor del gateway)
 
     async def recibir_audio(self, pcm16: bytes) -> None:
         for ventana in self.reagrupador.agregar(pcm16):
@@ -50,6 +51,7 @@ class Escucha:
 
     def _evento(self, ev) -> None:
         if ev.tipo == "inicio":
+            self.voces_detectadas += 1
             self.pendiente_de_barge = self.orquestador.hablando
             self.cola = asyncio.Queue()
             self.cola.put_nowait(a_pcm16(ev.audio))

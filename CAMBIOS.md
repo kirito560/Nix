@@ -90,3 +90,10 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - **Orden:** micrófono → cancelador de eco → guardián → pasa-altas → normalización → servidor. Sin dúplex:
   micrófono → pasa-altas → normalización.
 - Las tareas 1 y 2 van **en un solo commit**: tocan las mismas líneas de `client/audio_io.py`.
+
+## 3. Medidor del servidor (`server/gateway/ws_server.py`)
+
+- Cada 10 s escribe, por ejemplo: `🎚️ micrófono: 10.0 s de audio en 10 s | RMS -31 dBFS, pico -9 dBFS |
+  voz detectada 2 veces`. «Voz detectada» cuenta las frases que el VAD empezó: estén o no descartadas
+  después.
+- Solo escribe mientras llega audio, que con el cliente conectado es siempre. Si no hay cliente, no hay línea.
