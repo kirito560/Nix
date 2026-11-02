@@ -12,8 +12,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from typing import Awaitable, Callable, Optional
+
+import numpy as np
 
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
@@ -29,6 +32,38 @@ from shared.protocol import (CIERRE_NO_AUTORIZADO, CIERRE_REEMPLAZADO, AuthChall
 log = logging.getLogger("nix.gateway")
 
 TIEMPO_AUTH_S = 5.0
+CADA_S_NIVEL = 10.0
+
+
+class MedidorNivel:
+    """Resume cada `cada_s` cuánto audio llegó del micrófono y a qué volumen (para ver si el micrófono
+    elegido en el PC es el correcto: por debajo de ~-60 dBFS es prácticamente silencio)."""
+
+    def __init__(self, cada_s: float = CADA_S_NIVEL):
+        self.cada_s = cada_s
+        self._reiniciar(time.monotonic())
+
+    def _reiniciar(self, ahora: float) -> None:
+        self.desde, self.muestras, self.energia, self.pico = ahora, 0, 0.0, 0
+
+    def agregar(self, pcm16: bytes, ahora: float | None = None) -> Optional[str]:
+        ahora = time.monotonic() if ahora is None else ahora
+        x = np.frombuffer(pcm16, "<i2")
+        if len(x):
+            self.muestras += len(x)
+            self.energia += float(np.sum(x.astype(np.float64) ** 2))
+            self.pico = max(self.pico, int(np.max(np.abs(x.astype(np.int32)))))
+        if ahora - self.desde < self.cada_s:
+            return None
+        segundos = self.muestras / 16000
+        rms = np.sqrt(self.energia / max(self.muestras, 1)) / 32768
+        db = 20 * np.log10(rms + 1e-9)
+        pico_db = 20 * np.log10(self.pico / 32768 + 1e-9)
+        aviso = "  ⚠️ casi silencio: ¿micrófono equivocado o silenciado?" if pico_db < -50 else ""
+        texto = (f"🎚️ micrófono: {segundos:.1f} s de audio en {ahora - self.desde:.0f} s | nivel {db:.0f} dBFS, "
+                 f"pico {pico_db:.0f} dBFS{aviso}")
+        self._reiniciar(ahora)
+        return texto
 
 
 class Gateway:
@@ -63,6 +98,7 @@ class Gateway:
             await ws.send(msg if isinstance(msg, bytes) else msg.a_json())
 
         escucha = self.crear_escucha(enviar)
+        medidor = MedidorNivel()
         try:
             async for trama in ws:
                 if isinstance(trama, bytes):
@@ -71,6 +107,8 @@ class Gateway:
                     except ErrorProtocolo as e:
                         log.warning("audio.in inválido: %s", e)
                         continue
+                    if (resumen := medidor.agregar(pcm)) is not None:
+                        log.info(resumen)
                     await escucha.recibir_audio(pcm)
                 else:
                     self._mensaje(trama)

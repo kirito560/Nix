@@ -121,3 +121,8 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
 - 2026-10-29: firewall comprobado (ya estaba bien). Nix instalada como servicio de usuario `nix` y probada contra 192.168.1.50.
 - 2026-10-30: AEC en el cliente (`client/aec.py`, `AudioDuplex`), probado con eco simulado y con una tarjeta falsa. Código de la fase 2 completo.
 - 2026-10-30: mejoras de latencia (de 2,05 s a 1,09 s p50): conexiones con edge-tts listas, Groq con conexión viva, transcripción adelantada. Frase de disculpa si falla el LLM. Reconexión automática del cliente.
+
+### 2026-11-02 — primera prueba desde el PC Windows
+- El cliente se instaló en el PC (192.168.1.64), se conectó y se autenticó, pero el VAD no detectó voz.
+- Añadido al gateway un medidor de nivel del micrófono: cada 10 s registra cuántos segundos de audio llegan y
+  su nivel/pico en dBFS, con aviso si es casi silencio. Sirve para diagnosticar micrófono equivocado o mudo.
