@@ -1,11 +1,11 @@
 # Resultado de pytest
 
-Ejecutado el 2026-11-02 18:48 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
+Ejecutado el 2026-11-02 19:07 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
 Las pruebas de audio usan un sounddevice falso y señales sintéticas; las de pantalla, un mss y un pynput falsos
 con pantallas dibujadas con Pillow; las de cámara, un OpenCV falso (y una con el clasificador Haar real).
-Las de Groq usan un servidor HTTP falso: no gastan la clave.
+Las de Groq y las de personalidad usan LLM y servidores HTTP falsos: no gastan la clave.
 
-**============================= 225 passed in 25.97s =============================**
+**============================= 264 passed in 30.99s =============================**
 
 ```
 tests/test_aec.py::test_cancela_el_eco_cuando_solo_habla_ella PASSED
@@ -145,6 +145,45 @@ tests/test_personaje.py::test_personaje_elegido_por_entorno PASSED
 tests/test_personaje.py::test_cada_personaje_tiene_su_carpeta_de_datos PASSED
 tests/test_personaje.py::test_personaje_inexistente PASSED
 tests/test_personaje.py::test_cabecera_obligatoria PASSED
+tests/test_personalidad.py::test_el_limite_de_tokens_es_bajo PASSED
+tests/test_personalidad.py::test_groq_recibe_el_limite_de_tokens PASSED
+tests/test_personalidad.py::test_la_respuesta_se_corta_en_dos_oraciones PASSED
+tests/test_personalidad.py::test_las_comas_no_cuentan_como_oracion PASSED
+tests/test_personalidad.py::test_sin_tope_dice_todo PASSED
+tests/test_personalidad.py::test_el_prompt_pide_una_o_dos_frases_sin_listas PASSED
+tests/test_personalidad.py::test_ninguna_respuesta_dicha_usa_insultos[\xa1GG! Eso estuvo roto, la neta.] PASSED
+tests/test_personalidad.py::test_ninguna_respuesta_dicha_usa_insultos[Skill issue, la neta. Pero va otra.] PASSED
+tests/test_personalidad.py::test_ninguna_respuesta_dicha_usa_insultos[No me hagas perder el tiempo. \xbfJugamos?] PASSED
+tests/test_personalidad.py::test_ninguna_respuesta_dicha_usa_insultos[Eres un manco jaja.] PASSED
+tests/test_personalidad.py::test_ninguna_respuesta_dicha_usa_insultos[Ni modo, a la pr\xf3xima. Te toca elegir juego.] PASSED
+tests/test_personalidad.py::test_ninguna_respuesta_dicha_usa_insultos[Qu\xe9 tonto fue eso, jaja.] PASSED
+tests/test_personalidad.py::test_si_todo_era_hostil_dice_algo_amable PASSED
+tests/test_personalidad.py::test_frases_fijas_y_ficha_sin_insultos PASSED
+tests/test_personalidad.py::test_el_filtro_reconoce_la_lista_y_no_palabras_parecidas PASSED
+tests/test_personalidad.py::test_una_palabra_corta_y_rara_pide_repetir[ble] PASSED
+tests/test_personalidad.py::test_una_palabra_corta_y_rara_pide_repetir[Tor.] PASSED
+tests/test_personalidad.py::test_una_palabra_corta_y_rara_pide_repetir[\xf1e] PASSED
+tests/test_personalidad.py::test_una_palabra_corta_y_rara_pide_repetir[zas] PASSED
+tests/test_personalidad.py::test_respuestas_cortas_validas_no[s\xed] PASSED
+tests/test_personalidad.py::test_respuestas_cortas_validas_no[No.] PASSED
+tests/test_personalidad.py::test_respuestas_cortas_validas_no[ok] PASSED
+tests/test_personalidad.py::test_respuestas_cortas_validas_no[Hola] PASSED
+tests/test_personalidad.py::test_respuestas_cortas_validas_no[GG] PASSED
+tests/test_personalidad.py::test_respuestas_cortas_validas_no[Minecraft] PASSED
+tests/test_personalidad.py::test_respuestas_cortas_validas_no[pinchada de la lora] PASSED
+tests/test_personalidad.py::test_respuestas_cortas_validas_no[va] PASSED
+tests/test_personalidad.py::test_lo_poco_claro_no_llega_al_llm PASSED
+tests/test_personalidad.py::test_las_frases_de_repetir_son_de_una_oracion PASSED
+tests/test_personalidad.py::test_guarda_los_ultimos_10_turnos PASSED
+tests/test_personalidad.py::test_el_historial_se_borra_al_desconectarse PASSED
+tests/test_personalidad.py::test_la_sesion_usa_historial_turnos PASSED
+tests/test_personalidad.py::test_los_estados_quedan_entre_0_y_1_y_cambian_poco PASSED
+tests/test_personalidad.py::test_un_solo_turno_no_lo_cambia_todo PASSED
+tests/test_personalidad.py::test_vuelven_despacio_a_la_base PASSED
+tests/test_personalidad.py::test_el_animo_solo_cambia_el_texto_del_tono PASSED
+tests/test_personalidad.py::test_cada_respuesta_ajusta_el_animo PASSED
+tests/test_personalidad.py::test_la_presencia_no_genera_respuestas PASSED
+tests/test_personalidad.py::test_la_presencia_es_solo_contexto PASSED
 tests/test_protocol.py::test_audio_in_ida_y_vuelta PASSED
 tests/test_protocol.py::test_audio_in_mal_formado[] PASSED
 tests/test_protocol.py::test_audio_in_mal_formado[1234567] PASSED
@@ -233,5 +272,5 @@ tests/test_vad.py::test_silencio_no_genera_eventos PASSED
 tests/test_vad.py::test_frase_completa PASSED
 tests/test_vad.py::test_ruido_corto_se_descarta PASSED
 tests/test_vad.py::test_dos_frases_separadas PASSED
-============================= 225 passed in 25.97s =============================
+============================= 264 passed in 30.99s =============================
 ```

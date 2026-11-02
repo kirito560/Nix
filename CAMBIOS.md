@@ -382,3 +382,29 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - El texto que va al prompt ya no invita a comentarlo. Antes decía «puede haberse levantado y no oírte bien»;
   ahora dice «el usuario está / no está frente a la cámara. Es solo contexto: no lo menciones salvo que el
   usuario pregunte si lo ves o si está ahí».
+
+## 7. Pruebas (`tests/test_personalidad.py`, 39)
+
+- **Límite de tokens:**
+  - 90 por defecto (y +100 de margen con gpt-oss);
+  - una respuesta larga se corta en 2 oraciones y el stream deja de leerse;
+  - las comas no cuentan como oración;
+  - la respuesta queda dentro de 90 × 4 caracteres.
+- **Insultos:** seis respuestas de prueba (cuatro hostiles); ninguna frase dicha contiene una expresión de la
+  lista; si todo era hostil, dice la frase amable. Las frases fijas y la jerga de la ficha tampoco tienen
+  insultos, y el filtro no confunde palabras parecidas.
+- **Aclaraciones:** palabras cortas raras piden repetir, las válidas no, y lo poco claro no llega al LLM.
+- **Memoria de sesión:** guarda 10 turnos, se borra al desconectarse y respeta `HISTORIAL_TURNOS`.
+- **Ánimo:**
+  - 500 turnos al azar sin salir de 0 a 1 ni moverse más de 0,1 por respuesta;
+  - vuelve a la base (mitad en 10 min);
+  - el texto del tono cambia;
+  - las frases fijas no lo mueven.
+- **Presencia:** el PC manda cuatro cambios de presencia y Nix no responde nada (ni texto ni audio); el texto del
+  contexto pide no mencionarla.
+- 264 pruebas pasan (`PRUEBAS.md`).
+- **Prueba real con Groq** (8 frases parecidas a las de la conversación anterior):
+  - todas las respuestas son amables, sin insultos, de 1 o 2 oraciones;
+  - el pedido largo quedó en 2 oraciones;
+  - **dos turnos fallaron con 429:** la cuenta gratuita de Groq permite 7.000 tokens de entrada por minuto con
+    Qwen, y cada turno manda ~1.300 (ficha + historial). Queda pendiente (ver ESTADO.md).
