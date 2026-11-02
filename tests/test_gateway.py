@@ -40,12 +40,6 @@ def gateway(redes=("127.0.0.0/8",), tts=None) -> Gateway:
     return g
 
 
-async def generar(pcm: bytes):
-    for t in tramas(pcm):
-        yield t
-        await asyncio.sleep(0)
-
-
 async def conversar(g: Gateway, pcm: bytes, tiempo_real: bool = False):
     recibidos, audio = [], []
 
