@@ -246,28 +246,34 @@ class CapturaPantalla:
 
 
 class Atajos:
-    """Atajos globales (pynput): Ctrl+Alt+P enciende o pausa al instante; Ctrl+Alt+M manda la pantalla ahora.
+    """Atajos globales (pynput): Ctrl+Alt+P enciende o pausa la pantalla al instante; Ctrl+Alt+M manda la
+    pantalla ahora; Ctrl+Alt+C apaga la cámara al instante (solo apaga: encenderla es con --camara on).
     Los callbacks llegan desde el hilo de pynput y se pasan al bucle de asyncio."""
 
     PAUSA = "<ctrl>+<alt>+p"
     MIRAR = "<ctrl>+<alt>+m"
+    CAMARA = "<ctrl>+<alt>+c"
 
-    def __init__(self, captura: CapturaPantalla):
-        self.captura = captura
+    def __init__(self, captura: CapturaPantalla, camara=None):
+        self.captura, self.camara = captura, camara
         self.oyente = None
 
     def iniciar(self, bucle: asyncio.AbstractEventLoop) -> bool:
+        mapa = {
+            self.PAUSA: lambda: bucle.call_soon_threadsafe(self.captura.alternar),
+            self.MIRAR: lambda: bucle.call_soon_threadsafe(self.captura.mirar_ahora),
+        }
+        if self.camara is not None:
+            mapa[self.CAMARA] = lambda: bucle.call_soon_threadsafe(self.camara.desactivar)
         try:
             from pynput import keyboard
-            self.oyente = keyboard.GlobalHotKeys({
-                self.PAUSA: lambda: bucle.call_soon_threadsafe(self.captura.alternar),
-                self.MIRAR: lambda: bucle.call_soon_threadsafe(self.captura.mirar_ahora),
-            })
+            self.oyente = keyboard.GlobalHotKeys(mapa)
             self.oyente.start()
         except Exception as e:  # noqa: BLE001 - sin pynput o sin teclado accesible
-            log.warning("⌨️ no pude registrar los atajos (%s): la captura solo se controla con --pantalla", e)
+            log.warning("⌨️ no pude registrar los atajos (%s): pantalla y cámara solo se controlan al arrancar "
+                        "(--pantalla, --camara) o cerrando el cliente", e)
             return False
-        log.info("⌨️ atajos: Ctrl+Alt+P enciende/pausa la captura · Ctrl+Alt+M manda la pantalla a Nix")
+        log.info("⌨️ atajos: Ctrl+Alt+P pantalla sí/no · Ctrl+Alt+M manda la pantalla a Nix · Ctrl+Alt+C apaga la cámara")
         return True
 
     def detener(self) -> None:

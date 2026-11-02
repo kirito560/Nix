@@ -243,3 +243,13 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   el dato).
   - *Duda:* pediste solo `{ts, presente}`. Sin `activa`, al apagar la cámara habría que mandar `presente=false`,
     y Nix creería que te fuiste. Es otro booleano: no sale nada más de la cámara.
+
+## 2. Envío y control (`client/main.py`, `client/indicador.py`, atajos)
+
+- **`--camara on|off`** (por defecto `off`) y **Ctrl+Alt+C**, que **solo apaga**: encenderla es solo con
+  `--camara on`, como pediste. Al apagar se suelta la cámara (se apaga su luz) y se manda `activa=false`.
+- **`presencia.update` sale solo cuando cambia** el sí/no, nunca por frame. Al reconectar con el servidor se manda el
+  estado actual, porque cada sesión del servidor empieza sin el dato.
+- **Indicador:** un solo `Indicador` para pantalla y cámara. Cada cambio imprime una línea (🔴 CÁMARA ENCENDIDA…
+  / ⚫ Cámara apagada) y el título de la ventana dice lo que está encendido en ese momento.
+- `CAMARA_INDICE` en `.env.example` para elegir la cámara (0 = la primera).

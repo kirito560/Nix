@@ -8,6 +8,7 @@ responde el personaje, y reproduce su voz.
     uv run python -m client.main --listar                         # dispositivos de audio
     uv run python -m client.main --probar-audio                   # tono por el altavoz y nivel del micrófono
     uv run python -m client.main --pantalla on                    # arrancar con la captura de pantalla encendida
+    uv run python -m client.main --camara on                      # arrancar con la presencia por cámara encendida
 """
 from __future__ import annotations
 
@@ -23,7 +24,8 @@ from websockets.exceptions import ConnectionClosed
 
 from client.audio_io import (Altavoz, ArchivoWav, AudioDuplex, ErrorAudio, GrabadorWav, info_dispositivo,
                              probar_audio)
-from client.indicador import IndicadorPantalla
+from client.camara import Presencia
+from client.indicador import Indicador
 from client.screen_capture import EXCLUIDAS_POR_DEFECTO, Atajos, CapturaPantalla
 from client.ws_client import ErrorAutenticacion, ejecutar
 from shared.auth import validar_token
@@ -68,6 +70,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--todos", action="store_true", help="con --probar-audio: probar cada dispositivo")
     ap.add_argument("--pantalla", choices=("on", "off"), default="off",
                     help="captura de pantalla al arrancar (apagada por defecto; Ctrl+Alt+P la enciende o pausa)")
+    ap.add_argument("--camara", choices=("on", "off"), default="off",
+                    help="presencia por cámara (apagada por defecto; solo manda sí/no; Ctrl+Alt+C la apaga)")
     args = ap.parse_args(argv)
     if args.listar:
         listar(_dispositivo(args.dispositivo), _dispositivo(args.altavoz))
@@ -87,15 +91,18 @@ def main(argv: list[str] | None = None) -> None:
         retraso = e.texto("AEC_RETRASO_MS")
         fuente = salida = AudioDuplex(_dispositivo(args.dispositivo), _dispositivo(args.altavoz),
                                       aec=not args.sin_aec, retraso_ms=float(retraso) if retraso else None)
-        print("🎤 Habla cuando quieras (Ctrl+C para salir; Ctrl+Alt+P enciende o pausa la pantalla).")
+        print("🎤 Habla cuando quieras (Ctrl+C para salir; Ctrl+Alt+P pantalla sí/no; Ctrl+Alt+C apaga la cámara).")
     al_audio = lambda _turno, _pts, sr, pcm: salida.reproducir(sr, pcm)  # noqa: E731
     try:
         if args.wav:
             asyncio.run(ejecutar(args.servidor, token, fuente.tramas(), crear_mostrar(salida),
                                  espera_final_s=args.espera, al_audio=al_audio))
         else:
+            indicador = Indicador()
             asyncio.run(conversar_con_pantalla(args.servidor, token, fuente, salida, al_audio,
-                                               crear_captura(e), encender=args.pantalla == "on"))
+                                               crear_captura(e, indicador), encender=args.pantalla == "on",
+                                               presencia=crear_presencia(e, indicador),
+                                               encender_camara=args.camara == "on"))
     except ErrorAutenticacion as err:
         log.error("❌ autenticación: %s", err)
         sys.exit(1)
@@ -119,28 +126,49 @@ def siguiente_espera(espera: float) -> float:
     return min(espera * 2, ESPERA_MAX_S)
 
 
-def crear_captura(e: Entorno) -> CapturaPantalla:
+def crear_captura(e: Entorno, indicador: Indicador | None = None) -> CapturaPantalla:
     excluidas = e.lista("PANTALLA_EXCLUIR", "") or EXCLUIDAS_POR_DEFECTO
     return CapturaPantalla(fps=e.decimal("PANTALLA_FPS", 1.0), umbral=int(e.decimal("PANTALLA_UMBRAL", 10)),
                            enviar_imagen=e.booleano("PANTALLA_ENVIAR_IMAGEN", False), excluidas=excluidas,
-                           al_cambiar_estado=IndicadorPantalla())
+                           al_cambiar_estado=indicador.pantalla if indicador else None)
+
+
+def crear_presencia(e: Entorno, indicador: Indicador | None = None) -> Presencia:
+    return Presencia(indice=int(e.decimal("CAMARA_INDICE", 0)),
+                     al_cambiar_estado=indicador.camara if indicador else None)
 
 
 async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio, captura: CapturaPantalla,
-                                 encender: bool = False) -> None:
-    """La conversación de siempre, más la captura de pantalla (apagada salvo `encender`) y sus atajos."""
-    atajos = Atajos(captura)
+                                 encender: bool = False, presencia: Presencia | None = None,
+                                 encender_camara: bool = False) -> None:
+    """La conversación de siempre, más la captura de pantalla y la presencia por cámara (las dos apagadas salvo
+    `encender` / `encender_camara`) y sus atajos."""
+    atajos = Atajos(captura, presencia)
     atajos.iniciar(asyncio.get_running_loop())
     if encender:
         captura.activar()
     elif captura.al_cambiar_estado is not None:
         captura.al_cambiar_estado(False)            # deja claro desde el inicio que está apagada
-    tarea = asyncio.create_task(captura.correr(), name="pantalla")
+    if presencia is not None:
+        if not (encender_camara and presencia.activar()) and presencia.al_cambiar_estado is not None:
+            presencia.al_cambiar_estado(False)
+    tareas = [asyncio.create_task(captura.correr(), name="pantalla")]
+    if presencia is not None:
+        tareas.append(asyncio.create_task(presencia.correr(), name="camara"))
+
+    def al_conectar(enviar) -> None:
+        captura.conectar(enviar)
+        if presencia is not None:
+            presencia.conectar(enviar)
+
     try:
-        await conversar_siempre(url, token, fuente, salida, al_audio, al_conectar=captura.conectar)
+        await conversar_siempre(url, token, fuente, salida, al_audio, al_conectar=al_conectar)
     finally:
-        tarea.cancel()
-        await asyncio.gather(tarea, return_exceptions=True)
+        for tarea in tareas:
+            tarea.cancel()
+        await asyncio.gather(*tareas, return_exceptions=True)
+        if presencia is not None:
+            presencia.desactivar()
         atajos.detener()
 
 

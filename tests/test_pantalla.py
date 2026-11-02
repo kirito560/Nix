@@ -15,7 +15,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from client import screen_capture as sc
-from client.indicador import LINEA_ACTIVA, LINEA_APAGADA, TITULO_ACTIVA, TITULO_APAGADA, IndicadorPantalla
+from client.indicador import LINEA_PANTALLA_ACTIVA, LINEA_PANTALLA_APAGADA, Indicador
 from client.screen_capture import (TEXTO_PRIVADA, Atajos, CapturadorMss, CapturaPantalla, a_jpeg, distancia,
                                    es_excluida, phash, reducir)
 from server.config import ConfigServidor
@@ -215,7 +215,8 @@ def test_el_cliente_arranca_con_la_pantalla_apagada(monkeypatch):
     import client.main as cm
     llamadas = {}
 
-    async def conversar(url, token, fuente, salida, al_audio, captura, encender=False):
+    async def conversar(url, token, fuente, salida, al_audio, captura, encender=False, presencia=None,
+                        encender_camara=False):
         llamadas["encender"], llamadas["activa"] = encender, captura.activa
 
     monkeypatch.setattr(cm, "conversar_con_pantalla", conversar)
@@ -303,11 +304,12 @@ def test_sin_pynput_los_atajos_no_tumban_el_cliente(monkeypatch):
 
 def test_indicador_visible():
     lineas, titulos = [], []
-    ind = IndicadorPantalla(escribir=lineas.append, titulo=titulos.append)
-    ind(True)
-    ind(False)
-    assert lineas == [LINEA_ACTIVA, LINEA_APAGADA] and titulos == [TITULO_ACTIVA, TITULO_APAGADA]
-    assert "🔴" in LINEA_ACTIVA and "Ctrl+Alt+P" in TITULO_ACTIVA
+    ind = Indicador(escribir=lineas.append, titulo=titulos.append)
+    ind.pantalla(True)
+    ind.pantalla(False)
+    assert lineas == [LINEA_PANTALLA_ACTIVA, LINEA_PANTALLA_APAGADA]
+    assert "PANTALLA" in titulos[0] and "Ctrl+Alt+P" in titulos[0] and "PANTALLA" not in titulos[1]
+    assert "🔴" in LINEA_PANTALLA_ACTIVA
 
 
 # ------------------------------------------------------------------ servidor
