@@ -231,8 +231,11 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
   entendí bien, ¿me lo repites?» en vez de responder a algo mal entendido.
 - **Transcripción adelantada:** cuando llevas `STT_ADELANTO_MS` (200 ms) callado, ya se empieza a transcribir;
   si a los `VAD_SILENCIO_MS` (400 ms) la frase termina sin más voz, se usa ese resultado (~200 ms menos).
-- **Si Groq falla** (en la transcripción o en el LLM), dice «Uy, se me trabó el cerebro, ¿me lo repites?» en
-  vez de quedarse callada, y sigue escuchando.
+- **Si Qwen llega a su límite de uso** (429: la cuenta gratuita de Groq admite ~5 turnos por minuto) o Groq no tiene
+  capacidad (498/503), ese turno lo responde el modelo de respaldo (`LLM_MODELO_RESPALDO`, gpt-oss) sin que se
+  note; el siguiente vuelve a Qwen. En el log: `journalctl --user -u nix | grep RESPALDO`.
+- **Si Groq falla** (en la transcripción, o en el LLM y también en el respaldo), dice «Uy, se me trabó el cerebro,
+  ¿me lo repites?» en vez de quedarse callada, y sigue escuchando.
 - **El cliente se reconecta solo** si se corta la conexión (1, 2, 4, 8 y luego 10 s entre intentos).
 - Sin `GROQ_API_KEY`, el STT y el LLM son simulados (la voz sí es real).
 
@@ -268,7 +271,7 @@ uv run --python .venv python -m client.main
 ```
 ```bash
 # En el servidor: lo que entiende, lo que responde, cortes, filtro de tono y aclaraciones
-journalctl --user -u nix -f | grep --line-buffered -E "🗣️|🤖|✂️|🧹|🙉|⏱️ turno"
+journalctl --user -u nix -f | grep --line-buffered -E "🗣️|🤖|✂️|🧹|🙉|RESPALDO|⏱️ turno"
 ```
 
 ## Seguridad

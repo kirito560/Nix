@@ -423,3 +423,29 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   - las descripciones de que no se capturan ventanas de contraseñas.
 - **Ojo:** el texto viejo sigue en el historial de git (commit `d99378b`, ya subido a GitHub). Borrarlo de ahí
   obligaría a reescribir el historial y forzar el push; no lo hice.
+
+
+---
+
+# Respaldo cuando Qwen llega a su límite (2026-11-02)
+
+- **Qué hace:** si Groq contesta a Qwen con **429** (límite de tokens o peticiones por minuto) o con **498/503** (sin
+  capacidad), ese turno lo responde `LLM_MODELO_RESPALDO` (`openai/gpt-oss-120b`), con la misma conversación.
+  - El error llega como respuesta HTTP, antes de cualquier texto: Nix no se corta ni repite nada, y el usuario no
+    nota el cambio. Lo que dice el respaldo entra al historial como cualquier respuesta suya.
+  - **Solo ese turno:** el siguiente vuelve a probar Qwen. El 404 «modelo retirado» sigue cambiando para siempre,
+    como antes.
+  - *Duda:* «429 o similar». Elegí 429, 498 y 503, que son pasajeros. Errores como 401 (clave mala) o 400 no usan
+    el respaldo, porque no ayudaría.
+- **Si el respaldo también falla:** el error sube, Nix dice «Uy, se me trabó el cerebro, ¿me lo repites?» y sigue
+  escuchando, igual que antes.
+- **Log:** cada uso sale como `🧠 RESPALDO: qwen/qwen3.8-27b no responde ahora (Groq respondió 429: …); este turno
+  lo responde openai/gpt-oss-120b`. Si el respaldo falla: `🧠 RESPALDO: openai/gpt-oss-120b también falló (…)`.
+  Se filtra con `journalctl --user -u nix | grep RESPALDO`.
+- **Pruebas:** 8 nuevas en `tests/test_llm.py`.
+  - Un 429, 503 o 498 simulado en Qwen hace que responda gpt-oss, con razonamiento y margen de tokens, y el log
+    dice «RESPALDO».
+  - Solo ese turno; si los dos fallan, error; sin respaldo, error; un 401 no usa el respaldo.
+  - De punta a punta con el Orquestador: respaldo → frase de error → Qwen de vuelta.
+- **Prueba real con Groq:** 8 turnos seguidos con la ficha de Nix. El primero chocó con el límite de Qwen y lo
+  respondió gpt-oss en 484 ms en total; los siguientes ya volvieron a Qwen.

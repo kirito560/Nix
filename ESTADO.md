@@ -255,9 +255,17 @@ del plan, sigue sin empezar.
   gratuita de Groq permite **7.000 tokens de entrada por minuto** con Qwen y cada turno manda ~1.300 (ficha +
   historial + contexto). Con más de ~5 turnos por minuto Nix dice «se me trabó el cerebro».
 - **Pendiente:**
-  - **Límite de Groq (lo más urgente para conversar seguido).** Opciones:
-    - (a) ante un 429, responder ese turno con `openai/gpt-oss-120b`, que tiene su propio límite: lo más simple;
-    - (b) acortar la ficha que se manda en cada turno;
-    - (c) pasar a la capa de pago de Groq.
+  - ~~Límite de Groq~~ → hecho: opción (a), ver abajo.
   - Probar la conversación en el PC y ajustar las señales del ánimo y la lista de expresiones hostiles.
   - Subir los commits cuando Kirito lo apruebe.
+
+### 2026-11-02 — respaldo cuando Qwen llega a su límite (commits locales, sin push)
+- Opción (a) elegida por Kirito.
+  - Si Qwen responde 429 (límite por minuto) o 498/503 (sin capacidad), ese turno lo responde
+    `openai/gpt-oss-120b` sin que se note, y el siguiente vuelve a Qwen.
+  - Si el respaldo también falla, Nix dice la frase de error y sigue escuchando.
+  - En el log sale «RESPALDO» (`journalctl --user -u nix | grep RESPALDO`).
+- 272 pruebas pasan (8 nuevas).
+- Prueba real: el primer turno de una ráfaga chocó con el límite y lo respondió gpt-oss en 484 ms.
+- **Pendiente:** si los dos modelos llegan juntos al límite en charlas muy rápidas, queda la frase de error.
+  Siguientes pasos posibles: acortar la ficha que se manda en cada turno, o la capa de pago de Groq.
