@@ -156,13 +156,13 @@ async def test_con_el_orquestador_el_usuario_no_nota_el_cambio():
         enviados.clear()
         await o.al_texto_usuario(f"00000000-0000-0000-0000-00000000000{i}", texto, span())
         await o.turno.tarea
-        return [m.texto for m in enviados if isinstance(m, LlmText) and m.texto]
+        return " ".join(m.texto for m in enviados if isinstance(m, LlmText) and m.texto)
 
-    assert await turno(1, "hola") == ["Va, yo te ayudo."]
+    assert await turno(1, "hola") == "Va, yo te ayudo."
     estados["openai/gpt-oss-120b"] = 429
-    assert await turno(2, "¿sigues?") == [FRASE_SIN_CEREBRO]
+    assert await turno(2, "¿sigues?") == FRASE_SIN_CEREBRO
     estados.clear()
-    assert await turno(3, "¿y ahora?") == ["Hola desde Qwen."]
+    assert await turno(3, "¿y ahora?") == "Hola desde Qwen."
     # El historial tiene lo que dijo el respaldo, como si lo hubiera dicho ella (el usuario no nota el cambio).
     assert {"role": "assistant", "content": "Va, yo te ayudo."} in o.historial.mensajes
 

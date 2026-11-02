@@ -482,3 +482,16 @@ total **p50 1495 / p95 2936 ms** (n=12):
   que no lo cambié.
 - **Ojo:** con la interrupción por voz apagada (`BARGE_IN=0`), una frase que empieza mientras Nix habla se descarta
   sin aviso. Con turnos de 13 s, dos frases se perdieron así en la primera medición; por eso medí con 16 s.
+
+## 2. Primera frase más corta (`server/pipeline/frases.py`)
+
+- **La primera frase** sale en el primer final de oración, la primera coma (o «;», «:»), o al completar **5
+  palabras**, lo que llegue antes.
+  - *Duda:* «4 a 6 palabras». Elegí 5.
+  - Antes, la coma solo contaba después de 20 caracteres.
+- **Las demás frases** se cortan como antes: fin de oración, o espacio si pasan de 160 caracteres.
+- **Medido:** primera frase en 13 ms p50 (antes 11–14) y 58 ms p95 (antes 38–75). Qwen ya empieza casi siempre
+  con algo corto («¡Muy bien!», «Depende de tu humor:»), así que el cambio solo ayuda cuando la primera oración es
+  larga y sin comas. El total no se movió de forma medible (lo domina la variación de Groq).
+- **Costo:** si la primera oración se corta a la 5.ª palabra, la voz hace una pequeña pausa ahí, porque son dos
+  síntesis.

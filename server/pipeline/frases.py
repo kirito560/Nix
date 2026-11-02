@@ -1,9 +1,9 @@
 """
 Corta el texto del LLM en frases para el TTS a medida que llega.
 
-La primera frase sale en cuanto hay una coma (o punto y coma, dos puntos) tras `min_primera` caracteres:
-cuanto antes empiece a sintetizarse, antes suena la voz. Las demás esperan al final de oración; si una se
-alarga más de `max_largo`, se corta en el último espacio.
+La primera frase sale en cuanto hay un final de oración, una coma (o punto y coma, dos puntos) o
+`palabras_primera` palabras completas (5), lo que llegue antes: cuanto antes empiece a sintetizarse, antes suena
+la voz. Las demás esperan al final de oración; si una se alarga más de `max_largo`, se corta en el último espacio.
 """
 from __future__ import annotations
 
@@ -27,9 +27,12 @@ def tiene_palabras(texto: str) -> bool:
     return any(c.isalnum() for c in texto)
 
 
+_PALABRA_COMPLETA = re.compile(r"\S+\s+")
+
+
 class Segmentador:
-    def __init__(self, min_primera: int = 20, max_largo: int = 160):
-        self.min_primera, self.max_largo = min_primera, max_largo
+    def __init__(self, palabras_primera: int = 5, max_largo: int = 160):
+        self.palabras_primera, self.max_largo = palabras_primera, max_largo
         self.buf = ""
         self.emitidas = 0
 
@@ -52,10 +55,13 @@ class Segmentador:
         m = _FIN_ORACION.search(self.buf)
         if m:
             return m.end()
-        if self.emitidas == 0 and len(self.buf) >= self.min_primera:
-            pausas = list(_PAUSA.finditer(self.buf))
-            if pausas and pausas[-1].end() >= self.min_primera // 2:
-                return pausas[-1].end()
+        if self.emitidas == 0:
+            pausa = _PAUSA.search(self.buf)
+            palabras = list(_PALABRA_COMPLETA.finditer(self.buf))
+            enesima = palabras[self.palabras_primera - 1].end() if len(palabras) >= self.palabras_primera else None
+            cortes = [c for c in (pausa.end() if pausa else None, enesima) if c is not None]
+            if cortes:
+                return min(cortes)
         if len(self.buf) > self.max_largo:
             espacio = self.buf.rfind(" ", 0, self.max_largo)
             return espacio + 1 if espacio > 0 else self.max_largo

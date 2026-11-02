@@ -16,15 +16,15 @@ def test_corta_en_fin_de_oracion():
     assert segmentar("¡GG! Eso estuvo roto. ¿Otra?") == ["¡GG!", "Eso estuvo roto.", "¿Otra?"]
 
 
-def test_la_primera_frase_sale_en_la_primera_coma_larga():
+def test_la_primera_frase_sale_en_la_primera_coma():
     frases = segmentar("Oye, la neta eso fue un clutch tremendo, pero la próxima te gano. Va.")
-    assert frases[0] == "Oye, la neta eso fue un clutch tremendo,"
-    assert frases[1:] == ["pero la próxima te gano.", "Va."]
+    assert frases[0] == "Oye,"
+    assert frases[1:] == ["la neta eso fue un clutch tremendo, pero la próxima te gano.", "Va."]
 
 
 def test_solo_la_primera_frase_corta_en_comas():
     frases = segmentar("Bueno, mira. Uno, dos, tres, cuatro, cinco, seis y siete.")
-    assert frases == ["Bueno, mira.", "Uno, dos, tres, cuatro, cinco, seis y siete."]
+    assert frases == ["Bueno,", "mira.", "Uno, dos, tres, cuatro, cinco, seis y siete."]
 
 
 def test_frases_muy_largas_se_cortan_en_un_espacio():
