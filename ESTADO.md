@@ -30,8 +30,8 @@
 - **Servicio (2026-10-29):** `nix.service` (servicio de usuario, `despliegue/nix.service`) activo y habilitado: arranca solo, se reinicia si falla, `MemoryMax=1G`. Registro: `journalctl --user -u nix -f`.
 - **Conexiones listas (2026-10-30):** mientras hay un cliente conectado (y 5 min después), una conexión con edge-tts abierta y renovada cada ~10 s (Microsoft cierra las inactivas entre 15 y 45 s, con o sin ping; medido), y la de Groq viva con una petición cada 30 s (Groq la mantiene al menos 3 min). `server/pipeline/edge_pool.py` (usa funciones internas de edge-tts 7.3.1; si cambian, vuelve al modo normal) y `server/pipeline/groq_http.py`.
 - **Transcripción adelantada (2026-10-30):** a los 200 ms de silencio se transcribe por adelantado; se usa si la frase termina sin más voz (`STT_ADELANTO_MS`).
-- **Si el LLM falla**, dice «Uy, se me trabó el cerebro. ¿Me lo repites?».
-- **El cliente se reconecta solo** (1, 2, 4… 30 s); no reintenta con el token mal ni si otro cliente lo reemplazó.
+- **Si el LLM falla**, dice «Uy, se me trabó el cerebro, ¿me lo repites?».
+- **El cliente se reconecta solo** (1, 2, 4, 8 y 10 s); no reintenta con el token mal ni si otro cliente lo reemplazó.
 - **Medición:** `python -m server.medir` mide el STT, cada modelo de LLM y el TTS por separado.
 - **Prueba real en el servidor (2026-10-29):** cliente → servidor en `127.0.0.1` con un WAV hablado, todo real (Groq Whisper, Qwen, Dalia). Transcribió perfecto «Hola Nix, ¿qué opinas de la pizza con piña?» las 6 veces.
 
@@ -204,7 +204,7 @@ Auditoría de secretos del mismo día:
 
 | Dónde | Qué | Cuándo |
 |---|---|---|
-| `~/nix/.env` (permisos 600, fuera de git) | Tiene `NIX_TOKEN` y `GROQ_API_KEY` (la clave la puso Kirito). Valores que difieren de `.env.example`: `BARGE_IN=0` (era 1; Nix se interrumpía sola), `GROQ_MODELO_STT=whisper-large-v3` (era turbo; transcribe mejor) y `VISION_HABILITADA=1` (era 0; segunda llave de la pantalla). Las variables nuevas (`STT_PROMPT`, `STT_MIN_LOGPROB`, `VISION_*`, `PANTALLA_*`, `AEC*`) no están: se usan sus valores por defecto. | 2026-10-29 a 11-02 |
+| `~/nix/.env` (permisos 600, fuera de git) | Tiene `NIX_TOKEN` y `GROQ_API_KEY` (la clave la puso Kirito). Valores que difieren de `.env.example`: `BARGE_IN=0` (era 1; Nix se interrumpía sola), `GROQ_MODELO_STT=whisper-large-v3` (era turbo; transcribe mejor) y `VISION_HABILITADA=1` (era 0; segunda llave de la pantalla) y `LLM_MAX_TOKENS=90` (era 300; respuestas cortas, 2026-11-02). Las variables nuevas (`STT_PROMPT`, `STT_MIN_LOGPROB`, `VISION_*`, `PANTALLA_*`, `AEC*`) no están: se usan sus valores por defecto. | 2026-10-29 a 11-02 |
 | `~/.config/systemd/user/nix.service` | Copia de `despliegue/nix.service` (idéntica), habilitada (`systemctl --user enable --now nix`). | 2026-10-29 |
 | Servicio `nix` | Reiniciado varias veces para aplicar cambios del código y del `.env`; hoy queda activo con el código local más nuevo (aún sin push). | 2026-10-29 a 11-02 |
 | `~/nix/.venv` (fuera de git) | Paquetes de los `requirements`, más mss, pillow, pynput, python-xlib y six para correr las pruebas de pantalla. | 2026-11-02 |
@@ -238,3 +238,26 @@ del plan, sigue sin empezar.
   - ajustar los umbrales (2 frames / 4 s) si cambia demasiado o muy lento;
   - con la memoria de largo plazo (fase 4), dejar la presencia fuera;
   - subir los commits cuando Kirito lo apruebe.
+
+### 2026-11-02 — ronda 2: personalidad y conversación (commits locales, sin push)
+- **Respuestas cortas:** prompt de una o dos frases, `LLM_MAX_TOKENS` 90 (también en el `.env` del servidor) y tope
+  duro de 2 oraciones (`RESPUESTA_MAX_ORACIONES`).
+- **Tono:** ficha de Nix sin burlas ni «skill issue»; filtro `server/tono.py` que no deja decir frases hostiles.
+- **Aclaraciones:** palabra corta y rara → «Perdón, no te entendí bien, ¿me lo repites?»; el prompt pide no
+  inventar.
+- **Memoria de sesión:** el historial (10 turnos) pasó del servidor a la sesión; se borra al desconectarse.
+- **Ánimo** (`server/animo.py`): energía, paciencia y cercanía de 0 a 1, ±0,1 por respuesta, vuelven a la base;
+  solo cambian el tono del prompt. Es una primera versión simple del motor emocional (fase 3 del plan).
+- **Presencia:** solo contexto; el texto pide no mencionarla salvo que pregunten. Ningún código responde a ella.
+- **Repositorio:** quitada la nota de seguridad pedida y neutralizadas otras menciones en textos.
+- 264 pruebas pasan (`PRUEBAS.md`); decisiones en `CAMBIOS.md`.
+- **Prueba real con Groq:** respuestas amables y de 1 o 2 oraciones. **Pero dos turnos dieron 429:** la cuenta
+  gratuita de Groq permite **7.000 tokens de entrada por minuto** con Qwen y cada turno manda ~1.300 (ficha +
+  historial + contexto). Con más de ~5 turnos por minuto Nix dice «se me trabó el cerebro».
+- **Pendiente:**
+  - **Límite de Groq (lo más urgente para conversar seguido).** Opciones:
+    - (a) ante un 429, responder ese turno con `openai/gpt-oss-120b`, que tiene su propio límite: lo más simple;
+    - (b) acortar la ficha que se manda en cada turno;
+    - (c) pasar a la capa de pago de Groq.
+  - Probar la conversación en el PC y ajustar las señales del ánimo y la lista de expresiones hostiles.
+  - Subir los commits cuando Kirito lo apruebe.

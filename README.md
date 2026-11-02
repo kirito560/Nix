@@ -227,14 +227,49 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
   Al servidor llega PCM16 mono a 16 kHz.
 - **Transcripción:** Whisper recibe el idioma (`IDIOMA=es`) y un prompt con palabras que se dicen seguido
   (`STT_PROMPT`: Nix, Minecraft, PvP, Roblox…). Se descartan textos vacíos o de un carácter. Si Whisper no
-  está seguro (`avg_logprob` menor que `STT_MIN_LOGPROB`, por defecto -1,0), Nix dice «No te entendí bien.
-  ¿Me lo repites?» en vez de responder a algo mal entendido.
+  está seguro (`avg_logprob` menor que `STT_MIN_LOGPROB`, por defecto -1,0), Nix dice «Perdón, no te
+  entendí bien, ¿me lo repites?» en vez de responder a algo mal entendido.
 - **Transcripción adelantada:** cuando llevas `STT_ADELANTO_MS` (200 ms) callado, ya se empieza a transcribir;
   si a los `VAD_SILENCIO_MS` (400 ms) la frase termina sin más voz, se usa ese resultado (~200 ms menos).
-- **Si Groq falla** (en la transcripción o en el LLM), dice «Uy, se me trabó el cerebro. ¿Me lo repites?» en
+- **Si Groq falla** (en la transcripción o en el LLM), dice «Uy, se me trabó el cerebro, ¿me lo repites?» en
   vez de quedarse callada, y sigue escuchando.
 - **El cliente se reconecta solo** si se corta la conexión (1, 2, 4, 8 y luego 10 s entre intentos).
 - Sin `GROQ_API_KEY`, el STT y el LLM son simulados (la voz sí es real).
+
+## Personalidad y conversación
+
+- **Respuestas cortas:**
+  - el prompt pide una o dos frases, sin listas ni discursos;
+  - `LLM_MAX_TOKENS=90`;
+  - además hay un tope duro de 2 oraciones (`RESPUESTA_MAX_ORACIONES`): al cerrarse la 2.ª, se deja de leer al
+    LLM. En el log sale `✂️ respuesta cortada en 2 oraciones`.
+- **Tono:**
+  - Nix bromea con cariño y sin presionar (`personajes/nix.md`);
+  - si el LLM suelta una expresión de la lista de `server/tono.py` («skill issue», «no me hagas perder el tiempo»,
+    «manco»…), esa frase no se dice (`🧹 frase descartada por el tono`).
+- **Aclaraciones:** una sola palabra corta y rara («ble», «tor») o una transcripción poco fiable → «Perdón, no te
+  entendí bien, ¿me lo repites?». Si algo más largo no tiene sentido, el prompt le pide que pida repetir en vez de
+  inventar.
+- **Memoria de sesión:** recuerda los últimos 10 turnos (`HISTORIAL_TURNOS`) de la conversación actual. Se borran
+  al desconectarse el PC; no se guardan en disco ni en memoria de largo plazo.
+- **Ánimo:** energía, paciencia y cercanía, de 0 a 1:
+  - cada respuesta los mueve como mucho 0,1 (risas y «gracias» suben la cercanía; insultos bajan la paciencia);
+  - vuelven solos a su base (mitad en 10 min);
+  - solo cambian el tono que se le pide en el prompt, no la voz;
+  - viven en la sesión.
+- **Presencia y pantalla** son solo contexto: Nix no las menciona salvo que le preguntes, y ningún cambio de
+  presencia la hace hablar.
+
+**Probar la conversación** (con el servicio corriendo en el servidor):
+```powershell
+# En el PC
+cd $HOME\Nix
+uv run --python .venv python -m client.main
+```
+```bash
+# En el servidor: lo que entiende, lo que responde, cortes, filtro de tono y aclaraciones
+journalctl --user -u nix -f | grep --line-buffered -E "🗣️|🤖|✂️|🧹|🙉|⏱️ turno"
+```
 
 ## Seguridad
 
