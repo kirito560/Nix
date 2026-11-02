@@ -34,9 +34,9 @@ class ConfigServidor:
     # VAD
     silero_onnx: str = "/datos/modelos/silero_vad.onnx"
     vad_umbral: float = 0.5
-    vad_silencio_ms: float = 400.0
+    vad_silencio_ms: float = 300.0             # con 250 se cortaban frases con pausas de ~300 ms (2026-11-02)
     vad_min_voz_ms: float = 250.0
-    stt_adelanto_ms: float = 200.0            # 0 = no adelantar la transcripción
+    stt_adelanto_ms: float = 150.0            # 0 = no adelantar la transcripción; menor que vad_silencio_ms
     # LLM
     llm_proveedor: str = "auto"               # auto | groq | stub
     llm_modelo: str = "qwen/qwen3.8-27b"
@@ -84,9 +84,9 @@ class ConfigServidor:
             stt_min_logprob=e.decimal("STT_MIN_LOGPROB", -1.0),
             silero_onnx=e.texto("SILERO_ONNX", "/datos/modelos/silero_vad.onnx"),
             vad_umbral=e.decimal("VAD_UMBRAL", 0.5),
-            vad_silencio_ms=e.decimal("VAD_SILENCIO_MS", 400.0),
+            vad_silencio_ms=e.decimal("VAD_SILENCIO_MS", 300.0),
             vad_min_voz_ms=e.decimal("VAD_MIN_VOZ_MS", 250.0),
-            stt_adelanto_ms=e.decimal("STT_ADELANTO_MS", 200.0),
+            stt_adelanto_ms=e.decimal("STT_ADELANTO_MS", 150.0),
             llm_proveedor=e.texto("LLM_PROVEEDOR", "auto").lower(),
             llm_modelo=e.texto("LLM_MODELO", "qwen/qwen3.8-27b"),
             llm_modelo_respaldo=e.texto("LLM_MODELO_RESPALDO", "openai/gpt-oss-120b"),

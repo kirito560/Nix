@@ -449,3 +449,36 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   - De punta a punta con el Orquestador: respaldo → frase de error → Qwen de vuelta.
 - **Prueba real con Groq:** 8 turnos seguidos con la ficha de Nix. El primero chocó con el límite de Qwen y lo
   respondió gpt-oss en 484 ms en total; los siguientes ya volvieron a Qwen.
+
+---
+
+# Latencia (2026-11-02)
+
+Medido con un WAV de 12 frases (voz de Jorge, algunas con pausas a media frase de 250 a 370 ms) mandado al
+servicio real como si fuera el PC, con 16 s entre turnos. Groq varía ±150 ms de una medición a otra.
+
+## Base
+
+total **p50 1495 / p95 2936 ms** (n=12):
+- VAD 421 ms;
+- transcripción 291 ms;
+- LLM, primer token 315 ms;
+- primera frase 11 ms;
+- TTS, primer audio 372 ms.
+
+## 1. Fin de turno más rápido
+
+- **Con 250 ms:** 2 de 12 frases se cortaron en una pausa de ~300 ms. «Creo que | la pizza…» y «Bueno, | dime…»: el
+  principio se descartó por corto y el resto llegó como otro turno. En una primera prueba, con pausas más largas
+  (410–490 ms), se cortaron 6.
+- **Con 300 ms: ninguna frase cortada.** Elegido: `VAD_SILENCIO_MS=300`, en el código, en `.env.example` y en el
+  `.env` del servidor.
+- **La transcripción adelantada pasa de 200 a 150 ms** (`STT_ADELANTO_MS`), para que siga empezando antes de que el
+  VAD cierre.
+- **Resultado:** el VAD ahorra 100 ms (421 → 321), pero la transcripción espera más (Whisper tarda ~350 ms en Groq y
+  ya no le da tiempo a terminar antes del cierre). De fin de voz a texto se pasó de ~712 a ~683 ms: **unos 30 ms de
+  ganancia real**.
+- **Probé `whisper-large-v3-turbo`:** 314 ms contra 353, y transcribe igual. Casi todo es red y cola de Groq, así
+  que no lo cambié.
+- **Ojo:** con la interrupción por voz apagada (`BARGE_IN=0`), una frase que empieza mientras Nix habla se descarta
+  sin aviso. Con turnos de 13 s, dos frases se perdieron así en la primera medición; por eso medí con 16 s.
