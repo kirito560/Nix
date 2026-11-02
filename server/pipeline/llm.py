@@ -5,7 +5,10 @@ trozos de texto a medida que llegan, para que el TTS pueda empezar con la primer
   - LLMGroq: API compatible con OpenAI de Groq (https://console.groq.com/docs). Con los modelos gpt-oss se
     manda `reasoning_effort` (low = menos espera antes del primer token); solo se lee `delta.content`, así
     que el razonamiento nunca llega a la voz. Si Groq retira el modelo (404 model_not_found), pasa al
-    modelo de respaldo y se queda con él.
+    modelo de respaldo y se queda con él. Si el modelo está en su límite de uso (429) o Groq no tiene
+    capacidad (498/503), ESE turno lo responde el modelo de respaldo y el siguiente vuelve a probar el
+    principal; en el log sale «RESPALDO». Si el respaldo también falla, el error sube y el Orquestador dice
+    la frase de error.
   - LLMStub: sin clave. Repite lo que dijo el usuario, para probar la tubería completa.
 """
 from __future__ import annotations
@@ -29,6 +32,14 @@ class ErrorLLM(RuntimeError):
 
 class ModeloRetirado(ErrorLLM):
     """El modelo no existe o la cuenta ya no tiene acceso (los modelos en vista previa pueden retirarse)."""
+
+
+class LimiteDeUso(ErrorLLM):
+    """Pasajero: límite de tokens o de peticiones por minuto (429) o Groq sin capacidad (498, 503). En la cuenta
+    gratuita, Qwen admite 7.000 tokens de entrada por minuto (~5 turnos); el respaldo tiene su propio límite."""
+
+
+ESTADOS_PASAJEROS = {429, 498, 503}
 
 
 class ProveedorLLM(abc.ABC):
@@ -59,10 +70,11 @@ class LLMGroq(ProveedorLLM):
         self.max_tokens, self.temperatura, self.razonamiento = max_tokens, temperatura, razonamiento
         self.http = cliente or groq_http.cliente()
 
-    def cuerpo(self, mensajes: list[dict]) -> dict:
-        cuerpo = {"model": self.modelo, "messages": mensajes, "stream": True,
+    def cuerpo(self, mensajes: list[dict], modelo: str | None = None) -> dict:
+        modelo = modelo or self.modelo
+        cuerpo = {"model": modelo, "messages": mensajes, "stream": True,
                   "max_completion_tokens": self.max_tokens, "temperature": self.temperatura}
-        if self.modelo.startswith("openai/gpt-oss") and self.razonamiento:
+        if modelo.startswith("openai/gpt-oss") and self.razonamiento:
             cuerpo["reasoning_effort"] = self.razonamiento
             # gpt-oss gasta tokens razonando antes de responder (~30 con "low", medido el 2026-11-02) y
             # cuentan dentro del límite: se le da ese margen para que la respuesta no salga vacía.
@@ -71,23 +83,41 @@ class LLMGroq(ProveedorLLM):
 
     async def responder(self, mensajes: list[dict]) -> AsyncIterator[str]:
         try:
-            async for trozo in self._responder(mensajes):
+            async for trozo in self._responder(mensajes, self.modelo):
                 yield trozo
         except ModeloRetirado:
             if not self.respaldo or self.respaldo == self.modelo:
                 raise
-            log.warning("🧠 Groq ya no ofrece %s; cambio al modelo de respaldo %s", self.modelo, self.respaldo)
+            log.warning("🧠 RESPALDO: Groq ya no ofrece %s; cambio al modelo de respaldo %s para siempre",
+                        self.modelo, self.respaldo)
             self.modelo = self.respaldo
-            async for trozo in self._responder(mensajes):
+            async for trozo in self._responder(mensajes, self.modelo):
                 yield trozo
+        except LimiteDeUso as e:
+            # Llega antes de cualquier texto (es la respuesta HTTP), así que el usuario no nota el cambio.
+            if not self.respaldo or self.respaldo == self.modelo:
+                raise
+            log.warning("🧠 RESPALDO: %s no responde ahora (%s); este turno lo responde %s",
+                        self.modelo, e, self.respaldo)
+            try:
+                async for trozo in self._responder(mensajes, self.respaldo):
+                    yield trozo
+            except Exception as e2:
+                log.error("🧠 RESPALDO: %s también falló (%s)", self.respaldo, e2)
+                raise
 
-    async def _responder(self, mensajes: list[dict]) -> AsyncIterator[str]:
-        async with self.http.stream("POST", self.URL, json=self.cuerpo(mensajes),
+    async def _responder(self, mensajes: list[dict], modelo: str) -> AsyncIterator[str]:
+        async with self.http.stream("POST", self.URL, json=self.cuerpo(mensajes, modelo),
                                     headers={"Authorization": f"Bearer {self.api_key}"}) as r:
             if r.status_code >= 400:
                 await r.aread()
-                error = ModeloRetirado if r.status_code == 404 and "model_not_found" in r.text else ErrorLLM
-                raise error(f"Groq respondió {r.status_code}: {r.text[:300]}")
+                if r.status_code == 404 and "model_not_found" in r.text:
+                    error = ModeloRetirado
+                elif r.status_code in ESTADOS_PASAJEROS:
+                    error = LimiteDeUso
+                else:
+                    error = ErrorLLM
+                raise error(f"Groq respondió {r.status_code}: {r.text[:200]}")
             async for linea in r.aiter_lines():
                 if not linea.startswith("data:"):
                     continue
