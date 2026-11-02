@@ -115,7 +115,7 @@ class Reagrupador:
 
 
 class DetectorVoz:
-    def __init__(self, puntuador, umbral: float = 0.5, silencio_ms: float = 400, min_voz_ms: float = 250,
+    def __init__(self, puntuador, umbral: float = 0.5, silencio_ms: float = 300, min_voz_ms: float = 250,
                  pre_roll_ms: float = 360, max_frase_s: float = 18.0):
         self.p = puntuador
         self.umbral, self.mantener = umbral, umbral * 0.3       # AIRI: una frase en curso sigue con el 30 %

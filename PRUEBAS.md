@@ -1,11 +1,12 @@
 # Resultado de pytest
 
-Ejecutado el 2026-11-02 19:18 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
+Ejecutado el 2026-11-02 20:20 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
 Las pruebas de audio usan un sounddevice falso y señales sintéticas; las de pantalla, un mss y un pynput falsos
 con pantallas dibujadas con Pillow; las de cámara, un OpenCV falso (y una con el clasificador Haar real).
 Las de Groq y las de personalidad usan LLM y servidores HTTP falsos (también para simular el 429): no gastan la clave.
+Las del TTS usan un MP3 hecho con ffmpeg en lugar de Microsoft.
 
-**============================= 272 passed in 31.00s =============================**
+**============================= 288 passed in 31.81s =============================**
 
 ```
 tests/test_aec.py::test_cancela_el_eco_cuando_solo_habla_ella PASSED
@@ -71,8 +72,24 @@ tests/test_filtros.py::test_alucinaciones[] PASSED
 tests/test_filtros.py::test_frases_reales[Gracias por ayudarme con el c\xf3digo] PASSED
 tests/test_filtros.py::test_frases_reales[Hola Nix, \xbfjugamos?] PASSED
 tests/test_filtros.py::test_validar_por_no_speech_y_por_poca_voz PASSED
+tests/test_fin_de_turno.py::test_el_turno_se_cierra_con_300_ms_por_defecto PASSED
+tests/test_fin_de_turno.py::test_el_fin_llega_unos_300_ms_despues_de_la_voz PASSED
+tests/test_fin_de_turno.py::test_una_pausa_normal_no_corta_la_frase[0.15] PASSED
+tests/test_fin_de_turno.py::test_una_pausa_normal_no_corta_la_frase[0.2] PASSED
+tests/test_fin_de_turno.py::test_una_pausa_normal_no_corta_la_frase[0.25] PASSED
+tests/test_fin_de_turno.py::test_una_pausa_larga_si_cierra_el_turno PASSED
+tests/test_fin_de_turno.py::test_la_primera_frase_sale_con_5_palabras_si_no_hay_coma PASSED
+tests/test_fin_de_turno.py::test_la_primera_frase_sale_en_la_coma_si_llega_antes PASSED
+tests/test_fin_de_turno.py::test_la_primera_frase_sale_en_el_punto_si_llega_antes PASSED
+tests/test_fin_de_turno.py::test_las_demas_frases_se_cortan_solo_por_puntuacion PASSED
+tests/test_fin_de_turno.py::test_no_cuenta_una_palabra_a_medias PASSED
+tests/test_fin_de_turno.py::test_palabras_primera_configurable PASSED
+tests/test_fin_de_turno.py::test_las_frases_cortas_repetidas_salen_de_la_cache PASSED
+tests/test_fin_de_turno.py::test_frases_largas_o_cortadas_no_se_guardan PASSED
+tests/test_fin_de_turno.py::test_precargar_llena_la_cache PASSED
+tests/test_fin_de_turno.py::test_usa_el_ffmpeg_de_reserva_y_repone_otro PASSED
 tests/test_frases.py::test_corta_en_fin_de_oracion PASSED
-tests/test_frases.py::test_la_primera_frase_sale_en_la_primera_coma_larga PASSED
+tests/test_frases.py::test_la_primera_frase_sale_en_la_primera_coma PASSED
 tests/test_frases.py::test_solo_la_primera_frase_corta_en_comas PASSED
 tests/test_frases.py::test_frases_muy_largas_se_cortan_en_un_espacio PASSED
 tests/test_frases.py::test_limpieza_para_voz PASSED
@@ -280,5 +297,5 @@ tests/test_vad.py::test_silencio_no_genera_eventos PASSED
 tests/test_vad.py::test_frase_completa PASSED
 tests/test_vad.py::test_ruido_corto_se_descarta PASSED
 tests/test_vad.py::test_dos_frases_separadas PASSED
-============================= 272 passed in 31.00s =============================
+============================= 288 passed in 31.81s =============================
 ```
