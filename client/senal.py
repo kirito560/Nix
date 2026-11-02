@@ -42,6 +42,17 @@ def _rampa(x: np.ndarray, desde: float, hasta: float) -> np.ndarray:
     return x * np.linspace(desde, hasta, len(x), endpoint=False)
 
 
+def limitar(x: np.ndarray, techo: float = 0.9, rodilla: float = 0.7) -> np.ndarray:
+    """Limitador suave muestra a muestra: lineal hasta `rodilla` y luego se curva (tanh) hacia `techo` sin
+    alcanzarlo. Es continuo y con la misma pendiente en la rodilla, así que no mete escalones."""
+    y = np.asarray(x, dtype=np.float64).copy()
+    fuerte = np.abs(y) > rodilla
+    if np.any(fuerte):
+        margen = techo - rodilla
+        y[fuerte] = np.sign(y[fuerte]) * (rodilla + margen * np.tanh((np.abs(y[fuerte]) - rodilla) / margen))
+    return y
+
+
 # ---------------------------------------------------------------------------------------- eco
 class GuardaEco:
     def __init__(self, max_db: float = 3.0, umbral_ruido_dbfs: float = -55.0, tau_bajada_s: float = 0.01,
@@ -132,7 +143,7 @@ class Normalizador:
     Mide el RMS del último segundo y busca la ganancia que lo deja en `objetivo_dbfs`, limitada entre
     `min_ganancia_db` y `max_ganancia_db` (el tope evita convertir el ruido en «voz»). Si el último segundo es
     solo ruido (por debajo de `umbral_ruido_dbfs`), la ganancia se queda donde estaba. Baja rápido y sube
-    lento, y nunca deja que una trama pase de `techo` (limitador de picos)."""
+    lento, y ninguna muestra pasa de `techo` (limitador suave, sin escalones)."""
 
     def __init__(self, objetivo_dbfs: float = -23.0, max_ganancia_db: float = 12.0, min_ganancia_db: float = -12.0,
                  umbral_ruido_dbfs: float = -50.0, ventana_s: float = 1.0, tau_bajada_s: float = 0.1,
@@ -160,11 +171,7 @@ class Normalizador:
         if nivel >= self.umbral:
             objetivo = min(self.max_g, max(self.min_g, 10 ** ((self.objetivo - nivel) / 20)))
             self.ganancia = _suavizar(self.ganancia, objetivo, self.tau_bajada, self.tau_subida, len(x) / self.sr)
-        pico = float(np.max(np.abs(x))) if len(x) else 0.0
-        if pico * self.ganancia > self.techo:                 # limitador: esta trama no se satura
-            self.ganancia = self.techo / pico
-            anterior = min(anterior, self.ganancia)
-        return np.clip(_rampa(x, anterior, self.ganancia), -1.0, 1.0)
+        return limitar(_rampa(x, anterior, self.ganancia), self.techo)
 
 
 class Acondicionador:

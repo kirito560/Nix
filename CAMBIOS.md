@@ -126,3 +126,15 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
     y la escucha sigue con la frase siguiente.
   - *Duda:* «la frase de error configurada». Es una constante del código, no una variable del `.env`, para no
     añadir configuración que nadie pidió.
+
+## 6. Pruebas
+
+- `tests/test_senal.py` (16): pasa-altas, normalización (objetivo, tope, ruido, sin saturar, sin escalones),
+  acondicionador, guardián del eco (+3 dB, reinicio, buena cancelación, ruido, sin cortes, informe cada 5 s),
+  remuestreo de 48 y 22,05 kHz y tramas PCM16 mono 16 kHz.
+- `tests/test_transcripcion.py` (27): textos vacíos, prompt (enviado y repetido), confianza baja y su umbral,
+  Groq que falla, LLM que falla, frases fijas, medidor y espera de reconexión.
+- **Lo que encontraron las pruebas:** el primer limitador de picos (por trama) dejaba pasar 0,9008 y metía un
+  escalón en el borde de la trama. Lo cambié por un **limitador suave** (lineal hasta 0,7 y curva hasta 0,9),
+  continuo y que nunca pasa del techo.
+- 170 pruebas pasan (`PRUEBAS.md`).

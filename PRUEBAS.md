@@ -1,9 +1,10 @@
 # Resultado de pytest
 
-Ejecutado el 2026-11-02 17:52 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
-Las pruebas de audio usan un sounddevice falso: no tocan una tarjeta de sonido real.
+Ejecutado el 2026-11-02 18:15 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
+Las pruebas de audio usan un sounddevice falso y señales sintéticas: no tocan una tarjeta de sonido real.
+Las de Groq usan un servidor HTTP falso: no gastan la clave.
 
-**============================= 127 passed in 17.55s =============================**
+**============================= 170 passed in 21.04s =============================**
 
 ```
 tests/test_aec.py::test_cancela_el_eco_cuando_solo_habla_ella PASSED
@@ -116,6 +117,22 @@ tests/test_protocol.py::test_mensajes_invalidos[{"nonce": "sin tipo"}] PASSED
 tests/test_protocol.py::test_mensajes_invalidos[no es json] PASSED
 tests/test_protocol.py::test_mensajes_invalidos[{"type": "stt.text", "turn_id": "t", "texto": "x", "campo_extra": 1}] PASSED
 tests/test_protocol.py::test_mensajes_invalidos[{"type": "user.state", "ts": 1, "valence": 2.0, "attention": 0.5}] PASSED
+tests/test_senal.py::test_pasa_altas_quita_graves_y_continua_y_deja_la_voz PASSED
+tests/test_senal.py::test_pasa_altas_por_tramas_igual_que_de_una_vez PASSED
+tests/test_senal.py::test_normalizador_lleva_la_voz_al_objetivo PASSED
+tests/test_senal.py::test_normalizador_no_sube_mas_que_el_tope PASSED
+tests/test_senal.py::test_normalizador_no_amplifica_el_ruido PASSED
+tests/test_senal.py::test_normalizador_nunca_satura_y_cambia_sin_saltos PASSED
+tests/test_senal.py::test_acondicionador_quita_graves_y_normaliza PASSED
+tests/test_senal.py::test_guarda_eco_limita_la_salida_a_3_db PASSED
+tests/test_senal.py::test_guarda_eco_reinicia_el_filtro_desajustado PASSED
+tests/test_senal.py::test_guarda_eco_respeta_una_buena_cancelacion PASSED
+tests/test_senal.py::test_guarda_eco_con_solo_ruido_deja_el_microfono PASSED
+tests/test_senal.py::test_guarda_eco_cambia_sin_cortes PASSED
+tests/test_senal.py::test_guarda_eco_informa_cada_5_segundos PASSED
+tests/test_senal.py::test_remuestreo_de_48_y_22_khz_a_16_khz PASSED
+tests/test_senal.py::test_remuestreo_quita_lo_que_no_cabe_en_16_khz PASSED
+tests/test_senal.py::test_al_servidor_van_tramas_pcm16_mono_16k_acondicionadas PASSED
 tests/test_stt.py::test_stub_devuelve_texto_simulado PASSED
 tests/test_stt.py::test_crear_stt_sin_claves_usa_stub PASSED
 tests/test_stt.py::test_deepgram_con_servidor_falso PASSED
@@ -124,6 +141,33 @@ tests/test_stt.py::test_groq_descarta_alucinacion PASSED
 tests/test_stt.py::test_groq_no_llama_a_la_api_sin_voz PASSED
 tests/test_stt.py::test_groq_usa_la_transcripcion_adelantada PASSED
 tests/test_stt.py::test_groq_descarta_el_adelanto_si_siguio_hablando PASSED
+tests/test_transcripcion.py::test_textos_vacios_o_de_un_caracter[] PASSED
+tests/test_transcripcion.py::test_textos_vacios_o_de_un_caracter[   ] PASSED
+tests/test_transcripcion.py::test_textos_vacios_o_de_un_caracter[.] PASSED
+tests/test_transcripcion.py::test_textos_vacios_o_de_un_caracter[a] PASSED
+tests/test_transcripcion.py::test_textos_vacios_o_de_un_caracter[\xbf?] PASSED
+tests/test_transcripcion.py::test_textos_vacios_o_de_un_caracter[\xa1A!] PASSED
+tests/test_transcripcion.py::test_textos_vacios_o_de_un_caracter[None] PASSED
+tests/test_transcripcion.py::test_textos_validos[s\xed] PASSED
+tests/test_transcripcion.py::test_textos_validos[Hola] PASSED
+tests/test_transcripcion.py::test_textos_validos[no, Nix] PASSED
+tests/test_transcripcion.py::test_repite_el_prompt PASSED
+tests/test_transcripcion.py::test_confianza_baja PASSED
+tests/test_transcripcion.py::test_groq_manda_espanol_y_el_prompt_de_contexto PASSED
+tests/test_transcripcion.py::test_groq_sin_prompt_no_lo_manda PASSED
+tests/test_transcripcion.py::test_groq_con_confianza_baja_pide_repetir PASSED
+tests/test_transcripcion.py::test_groq_umbral_de_confianza_configurable PASSED
+tests/test_transcripcion.py::test_groq_descarta_el_prompt_repetido PASSED
+tests/test_transcripcion.py::test_groq_descarta_un_solo_caracter PASSED
+tests/test_transcripcion.py::test_texto_vacio_no_llega_al_llm PASSED
+tests/test_transcripcion.py::test_confianza_baja_nix_pide_que_lo_repitas PASSED
+tests/test_transcripcion.py::test_si_falla_el_stt_avisa_y_sigue_escuchando PASSED
+tests/test_transcripcion.py::test_si_falla_el_llm_dice_la_frase_de_error_y_sigue PASSED
+tests/test_transcripcion.py::test_decir_no_se_guarda_en_el_historial PASSED
+tests/test_transcripcion.py::test_medidor_cada_10_s_con_rms_duracion_y_voces PASSED
+tests/test_transcripcion.py::test_espera_de_reconexion_crece_hasta_10_s PASSED
+tests/test_transcripcion.py::test_conversar_siempre_espera_entre_reintentos PASSED
+tests/test_transcripcion.py::test_no_reintenta_si_el_token_es_incorrecto PASSED
 tests/test_tts.py::test_stub_da_pcm_con_la_duracion_de_la_frase PASSED
 tests/test_tts.py::test_edge_decodifica_el_mp3_en_streaming PASSED
 tests/test_tts.py::test_edge_propaga_errores_de_la_fuente PASSED
@@ -133,5 +177,5 @@ tests/test_vad.py::test_silencio_no_genera_eventos PASSED
 tests/test_vad.py::test_frase_completa PASSED
 tests/test_vad.py::test_ruido_corto_se_descarta PASSED
 tests/test_vad.py::test_dos_frases_separadas PASSED
-============================= 127 passed in 17.55s =============================
+============================= 170 passed in 21.04s =============================
 ```
