@@ -253,3 +253,14 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - **Indicador:** un solo `Indicador` para pantalla y cámara. Cada cambio imprime una línea (🔴 CÁMARA ENCENDIDA…
   / ⚫ Cámara apagada) y el título de la ventana dice lo que está encendido en ese momento.
 - `CAMARA_INDICE` en `.env.example` para elegir la cámara (0 = la primera).
+
+## 3. Servidor (`server/sesion.py`, gateway, main)
+
+- **`EstadoSesion`:** vive con la conexión actual. El gateway crea uno nuevo al conectarse un cliente y lo tira al
+  desconectarse. `presencia.update` lo actualiza; con `activa=false` el dato vuelve a «sin dato».
+- **Solo se usa en el contexto del LLM.** En cada turno se añade una línea al prompt de sistema: «el usuario está
+  frente a la cámara» o «no está…». Sin dato, no se añade nada.
+- **No es memoria:** no entra en el historial de la conversación ni se guarda en disco. Todavía no hay memoria de
+  largo plazo (fase 4); cuando llegue, la presencia no debe entrar en ella.
+- No hace falta encender nada en el servidor: si el cliente no manda presencia, no hay línea. A diferencia de la
+  pantalla, no hay segunda llave, porque es un solo booleano.

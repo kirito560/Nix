@@ -24,9 +24,10 @@ from websockets.exceptions import ConnectionClosed
 from server.config import ConfigServidor
 from server.latencia import Registro
 from server.pipeline.escucha import Escucha
+from server.sesion import EstadoSesion
 from shared import auth
 from shared.protocol import (CIERRE_NO_AUTORIZADO, CIERRE_REEMPLAZADO, AuthChallenge, AuthOk, AuthResponse,
-                             ErrorProtocolo, PlaybackAck, UserState, VisionDelta, VisionFrame,
+                             ErrorProtocolo, PlaybackAck, PresenciaUpdate, UserState, VisionDelta, VisionFrame,
                              decodificar_audio_in, parsear_mensaje)
 
 log = logging.getLogger("nix.gateway")
@@ -77,6 +78,7 @@ class Gateway:
         self.cfg, self.crear_escucha, self.nombre_personaje = cfg, crear_escucha, nombre_personaje
         self.al_conectar = al_conectar
         self.vista = vista                       # server.vision.Vista: recibe lo que el cliente ve de la pantalla
+        self.sesion = EstadoSesion()             # estado de la conexión actual (presencia...); se olvida al cerrar
         self.registro = Registro()
         self.actual: ServerConnection | None = None
 
@@ -96,6 +98,7 @@ class Gateway:
             log.info("🔁 nueva conexión; cierro la anterior")
             await self.actual.close(CIERRE_REEMPLAZADO, "reemplazada")
         self.actual = ws
+        self.sesion = EstadoSesion()
         if self.al_conectar is not None:
             asyncio.create_task(self.al_conectar(), name="al-conectar")
 
@@ -124,6 +127,7 @@ class Gateway:
             await escucha.cerrar()
             if self.actual is ws:
                 self.actual = None
+                self.sesion = EstadoSesion()
             log.info("🔌 cliente %s desconectado", ip)
 
     async def _autenticar(self, ws: ServerConnection, ip: str) -> bool:
@@ -151,7 +155,9 @@ class Gateway:
         except ErrorProtocolo as e:
             log.warning("mensaje inválido del cliente: %s", e)
             return
-        if isinstance(msg, (VisionDelta, VisionFrame)) and not self.cfg.vision_habilitada:
+        if isinstance(msg, PresenciaUpdate):
+            self.sesion.actualizar_presencia(msg)
+        elif isinstance(msg, (VisionDelta, VisionFrame)) and not self.cfg.vision_habilitada:
             log.debug("visión apagada (VISION_HABILITADA=0); ignoro %s", msg.type)
         elif isinstance(msg, (VisionDelta, VisionFrame)) and self.vista is not None:
             self.vista.recibir(msg)

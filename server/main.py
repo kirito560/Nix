@@ -45,11 +45,15 @@ async def principal() -> None:
                  cfg.vision_modelo if vista.proveedor.nombre != "stub" else "pantalla sin descripción",
                  cfg.vision_max_tokens)
 
+    def contexto() -> str:
+        """Lo que se añade al prompt de sistema en cada turno: presencia (de la sesión) y pantalla."""
+        partes = [gateway.sesion.para_llm(), vista.resumen.para_llm() if vista is not None else ""]
+        return "\n".join(p for p in partes if p)
+
     def crear_escucha(enviar):
         detector = DetectorVoz(crear_puntuador(cfg.silero_onnx), umbral=cfg.vad_umbral,
                                silencio_ms=cfg.vad_silencio_ms, min_voz_ms=cfg.vad_min_voz_ms)
-        orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, historial,
-                                  contexto=vista.resumen.para_llm if vista is not None else None)
+        orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, historial, contexto=contexto)
         return Escucha(detector, stt, orquestador, cfg.barge_in, cfg.barge_min_voz_ms, cfg.stt_adelanto_ms)
 
     async def preparar() -> None:
