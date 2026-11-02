@@ -114,3 +114,15 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   - *Duda:* el umbral. Elegí el estándar de Whisper; si pide repetir demasiado, se baja (p. ej. -1,2) en el `.env`.
 - Las frases fijas (`Orquestador.decir`) no pasan por el LLM, no se guardan en el historial y no cuentan para
   las estadísticas de latencia.
+
+## 5. Estabilidad
+
+- **Reconexión del cliente:** espera 1, 2, 4, 8 y luego 10 s entre intentos (antes llegaba a 30 s). Nunca
+  reintenta sin pausa. Si la conexión duró más de 60 s, vuelve a empezar en 1 s. Solo cambió el tope de la espera;
+  la conexión, la autenticación y los casos en que no reintenta siguen igual.
+- **Si Groq falla:**
+  - en el LLM ya decía «Uy, se me trabó el cerebro. ¿Me lo repites?» (`FRASE_SIN_CEREBRO`);
+  - ahora también si falla la **transcripción** (Groq caído, límite, sin internet): misma frase, error en el log,
+    y la escucha sigue con la frase siguiente.
+  - *Duda:* «la frase de error configurada». Es una constante del código, no una variable del `.env`, para no
+    añadir configuración que nadie pidió.

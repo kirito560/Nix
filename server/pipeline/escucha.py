@@ -22,7 +22,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from server.latencia import Span
-from server.orquestador import FRASE_NO_ENTENDI
+from server.orquestador import FRASE_NO_ENTENDI, FRASE_SIN_CEREBRO
 from server.pipeline.filtros_whisper import es_texto_vacio
 from server.pipeline.stt import ProveedorSTT, a_pcm16
 from server.pipeline.vad import DetectorVoz, Reagrupador
@@ -110,7 +110,13 @@ class Escucha:
                 span = Span(turno)
                 span.marcar("voz_fin", t_voz_fin)
                 span.marcar("vad_fin", t_vad_fin)
-                resultado = await sesion.finalizar(usar_adelanto=adelantado_de == t_voz_fin)
+                try:
+                    resultado = await sesion.finalizar(usar_adelanto=adelantado_de == t_voz_fin)
+                except Exception:
+                    # Groq caído, sin internet, límite de uso...: avisarle en vez de quedarse callada.
+                    log.exception("❌ el STT (%s) falló", self.stt.nombre)
+                    await self.orquestador.decir(turno, FRASE_SIN_CEREBRO)
+                    return
                 terminada = True
                 span.marcar("stt_final")
                 if resultado.repetir:

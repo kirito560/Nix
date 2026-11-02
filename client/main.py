@@ -105,9 +105,17 @@ def main(argv: list[str] | None = None) -> None:
         salida.cerrar()
 
 
+ESPERA_MAX_S = 10.0
+
+
+def siguiente_espera(espera: float) -> float:
+    """1, 2, 4, 8, 10, 10... segundos entre reintentos de conexión."""
+    return min(espera * 2, ESPERA_MAX_S)
+
+
 async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, al_audio) -> None:
     """Con el micrófono: si se corta la conexión (reinicio del servidor, Wi-Fi...), se reconecta sola,
-    esperando 1, 2, 4... hasta 30 s. No reintenta si el token es incorrecto o si otro cliente la reemplazó."""
+    esperando 1, 2, 4... hasta 10 s. No reintenta si el token es incorrecto o si otro cliente la reemplazó."""
     espera = 1.0
     while True:
         inicio = time.monotonic()
@@ -127,7 +135,7 @@ async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, a
             espera = 1.0
         log.warning("🔌 %s; reintento en %.0f s", motivo, espera)
         await asyncio.sleep(espera)
-        espera = min(espera * 2, 30.0)
+        espera = siguiente_espera(espera)
 
 
 def listar(microfono=None, altavoz=None) -> None:
