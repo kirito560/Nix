@@ -107,6 +107,15 @@ class VisionFrame(_Mensaje):
     caption: Optional[str] = Field(default=None, max_length=300)
 
 
+class PresenciaUpdate(_Mensaje):
+    """Si hay alguien frente a la cámara. Lo ÚNICO que sale de la cámara: nunca frames ni imágenes.
+    Solo se manda cuando cambia. activa=False: la cámara se apagó (el servidor olvida el dato)."""
+    type: Literal["presencia.update"] = "presencia.update"
+    ts: int
+    presente: bool
+    activa: bool = True
+
+
 class UserState(_Mensaje):
     type: Literal["user.state"] = "user.state"
     ts: int
@@ -166,13 +175,13 @@ class Error(_Mensaje):
 
 
 Mensaje = Annotated[
-    Union[AuthChallenge, AuthResponse, AuthOk, VisionDelta, VisionFrame, UserState, PlaybackAck,
+    Union[AuthChallenge, AuthResponse, AuthOk, VisionDelta, VisionFrame, PresenciaUpdate, UserState, PlaybackAck,
           SttText, LlmText, AvatarCmd, PlaybackFlush, StateSync, Error],
     Field(discriminator="type"),
 ]
 _ADAPTADOR = TypeAdapter(Mensaje)
 
-MENSAJES_DEL_CLIENTE = (AuthResponse, VisionDelta, VisionFrame, UserState, PlaybackAck)
+MENSAJES_DEL_CLIENTE = (AuthResponse, VisionDelta, VisionFrame, PresenciaUpdate, UserState, PlaybackAck)
 MENSAJES_DEL_SERVIDOR = (AuthChallenge, AuthOk, SttText, LlmText, AvatarCmd, PlaybackFlush, StateSync, Error)
 
 

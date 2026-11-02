@@ -34,6 +34,7 @@ MENSAJES = [
     p.AuthOk(mac_servidor="12", sesion="s", personaje="Nix"),
     p.VisionDelta(ts=1, phash_dist=12), p.VisionDelta(ts=1, phash_dist=12, caption="un menú"),
     p.VisionFrame(ts=2, jpeg_b64="AAAA"), p.UserState(ts=3, valence=-0.5, attention=0.9),
+    p.PresenciaUpdate(ts=4, presente=True), p.PresenciaUpdate(ts=5, presente=False, activa=False),
     p.PlaybackAck(turn_id="t", pts_played=100), p.SttText(turn_id="t", texto="hola"),
     p.AvatarCmd(turn_id="t", pts=0, expression="feliz", gaze=(0.1, -0.2), mouth_form=0.5),
     p.PlaybackFlush(turn_id="t"), p.StateSync(emotion={"valence": 0.3}, mood_label="contenta"),

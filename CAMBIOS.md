@@ -219,3 +219,27 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - **Fallo encontrado:** el primer aviso podía quedar bloqueado si el reloj marcaba menos de 3 s (empezaba con «último
   envío = 0»). Corregido: empieza en «nunca».
 - Pillow se añadió a las dependencias de pruebas del servidor. 202 pruebas pasan (`PRUEBAS.md`).
+
+---
+
+# Presencia por cámara (2026-11-02)
+
+## 1. Cámara (`client/camara.py`)
+
+- **OpenCV con el clasificador Haar de caras**, a 320×240 y 2 fps. Elegí Haar en vez de MediaPipe porque ya viene
+  dentro de OpenCV, sin descargar modelos.
+  - **Versión fijada:** `opencv-python-headless==4.14.0.94`. **OpenCV 5 ya no trae Haar** (lo comprobé: lo
+    cambió por YuNet, que necesita un modelo aparte). La versión «headless» no trae ventanas, que no hacen
+    falta.
+- **Solo devuelve un booleano.** Cada frame vive lo que tarda la detección (`del frame` justo después); no se guarda
+  ni el anterior. Lectura y detección van en un hilo para no frenar el audio.
+- **Para que no parpadee**, porque Haar falla a veces si miras a un lado o hay poca luz:
+  - «presente» pide 2 frames seguidos con cara;
+  - «ausente» pide 4 s sin ninguna, contados desde la última cara o desde que se encendió.
+  - *Duda:* los umbrales. Elegí unos simples; se ajustan en `PRESENTE_TRAS_FRAMES` y `AUSENTE_TRAS_S`.
+- **Sin cámara, cámara ocupada o sin OpenCV:** aviso en el log («📷 la cámara queda apagada: …») y sigue apagada.
+- **Protocolo:** el mensaje `presencia.update {ts, presente}` entra en este commit, porque `camara.py` lo necesita
+  para importarse. Lleva además `activa` (por defecto `true`; `false` = la cámara se apagó y el servidor olvida
+  el dato).
+  - *Duda:* pediste solo `{ts, presente}`. Sin `activa`, al apagar la cámara habría que mandar `presente=false`,
+    y Nix creería que te fuiste. Es otro booleano: no sale nada más de la cámara.
