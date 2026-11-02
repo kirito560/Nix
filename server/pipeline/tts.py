@@ -2,9 +2,15 @@
 Voz (TTS) detrás de una interfaz común: `sintetizar(texto)` devuelve PCM16 mono a `sample_rate` en trozos,
 a medida que se genera.
 
-  - TTSEdge: edge-tts (voces neuronales de Microsoft Edge, sin clave). Entrega MP3 de 24 kHz; un proceso
-    de ffmpeg lo decodifica a PCM sobre la marcha, así el primer trozo sale sin esperar a la frase entera.
-    Las conexiones con Microsoft se abren de antemano (server/pipeline/edge_pool.py): ahorra ~500 ms.
+  - TTSEdge: edge-tts (voces neuronales de Microsoft Edge, sin clave). Entrega MP3 de 24 kHz en trozos
+    mientras sintetiza; un proceso de ffmpeg los decodifica a PCM sobre la marcha, así el primer audio sale sin
+    esperar a la frase entera (Microsoft solo da MP3: probado el 2026-11-02, los formatos PCM no devuelven
+    audio). Las conexiones con Microsoft se abren de antemano (server/pipeline/edge_pool.py): ahorra ~500 ms.
+    Y siempre hay un ffmpeg ya arrancado esperando la siguiente frase: arrancarlo en el momento costaba ~35 ms
+    (primer PCM a 42 ms contra 7 ms, medido el 2026-11-02).
+    Las frases cortas (≤ CACHE_MAX_CARACTERES) se guardan ya sintetizadas en memoria: Nix empieza muchas
+    respuestas igual («Uy,», «Jaja,», «¡Obvio!») y una frase nueva tarda 300-500 ms en Microsoft, mientras que
+    de la caché sale al instante. Solo en memoria; se pierde al reiniciar.
   - TTSStub: un tono suave con la duración aproximada de la frase. Para pruebas y sin internet.
 """
 from __future__ import annotations
@@ -13,6 +19,7 @@ import abc
 import asyncio
 import logging
 import shutil
+from collections import OrderedDict
 from typing import AsyncIterator, Callable, Optional
 
 import numpy as np
@@ -23,6 +30,8 @@ log = logging.getLogger("nix.tts")
 
 SR_SALIDA = 24000
 BYTES_TROZO = SR_SALIDA * 2 // 10          # 100 ms de PCM16 mono
+CACHE_MAX_CARACTERES = 50              # caben las frases fijas («Perdón, no te entendí bien, ¿me lo repites?»)
+CACHE_MAX_FRASES = 300
 
 
 class ProveedorTTS(abc.ABC):
@@ -70,21 +79,86 @@ class TTSEdge(ProveedorTTS):
                  fuente_mp3: Optional[Callable[[str], AsyncIterator[bytes]]] = None, pool=None):
         self.voz, self.pool = voz, pool
         self.fuente_mp3 = fuente_mp3 or (pool.mp3 if pool is not None else _mp3_de_edge(voz, velocidad))
+        self.reserva: Optional[asyncio.subprocess.Process] = None      # un ffmpeg ya arrancado
+        self.reponiendo: set[asyncio.Task] = set()
+        self.cache: OrderedDict[str, bytes] = OrderedDict()          # frase corta -> PCM (LRU)
+        self.aciertos = 0
 
     async def calentar(self) -> None:
         if self.pool is not None:
             await self.pool.calentar()
+        if self.reserva is None or self.reserva.returncode is not None:
+            self.reserva = await self._arrancar_ffmpeg()
 
     async def cerrar(self) -> None:
         if self.pool is not None:
             await self.pool.cerrar()
+        await asyncio.gather(*self.reponiendo, return_exceptions=True)
+        reserva, self.reserva = self.reserva, None
+        if reserva is not None and reserva.returncode is None:
+            reserva.kill()
+            await reserva.wait()
 
-    async def sintetizar(self, texto: str) -> AsyncIterator[bytes]:
-        proc = await asyncio.create_subprocess_exec(
+    async def _arrancar_ffmpeg(self) -> asyncio.subprocess.Process:
+        return await asyncio.create_subprocess_exec(
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-probesize", "32", "-analyzeduration", "0",
             "-fflags", "nobuffer", "-f", "mp3", "-i", "pipe:0",
             "-f", "s16le", "-ac", "1", "-ar", str(self.sample_rate), "pipe:1",
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
+
+    async def _tomar_ffmpeg(self) -> asyncio.subprocess.Process:
+        """El ffmpeg de reserva si sigue vivo (y se arranca otro para la próxima frase); si no, uno nuevo."""
+        proc, self.reserva = self.reserva, None
+        if proc is None or proc.returncode is not None:
+            proc = await self._arrancar_ffmpeg()
+        self._reponer_reserva()
+        return proc
+
+    def _reponer_reserva(self) -> None:
+        async def reponer() -> None:
+            nuevo = await self._arrancar_ffmpeg()
+            if self.reserva is None:
+                self.reserva = nuevo
+            else:                                      # otra frase ya repuso la reserva
+                nuevo.kill()
+                await nuevo.wait()
+        tarea = asyncio.get_running_loop().create_task(reponer(), name="ffmpeg-reserva")
+        self.reponiendo.add(tarea)
+        tarea.add_done_callback(self.reponiendo.discard)
+
+    async def sintetizar(self, texto: str) -> AsyncIterator[bytes]:
+        clave = " ".join(texto.split())
+        if (pcm := self.cache.get(clave)) is not None:
+            self.cache.move_to_end(clave)
+            self.aciertos += 1
+            for i in range(0, len(pcm), BYTES_TROZO):
+                yield pcm[i:i + BYTES_TROZO]
+            return
+        guardar = [] if len(clave) <= CACHE_MAX_CARACTERES else None
+        async for datos in self._sintetizar(texto):
+            if guardar is not None:
+                guardar.append(datos)
+            yield datos
+        if guardar:                                    # solo frases completas (si se cortó, no se llega aquí)
+            self.cache[clave] = b"".join(guardar)
+            while len(self.cache) > CACHE_MAX_FRASES:
+                self.cache.popitem(last=False)
+
+    async def precargar(self, frases: list[str]) -> None:
+        """Sintetiza de antemano frases que se dicen a menudo, para que salgan de la caché al instante."""
+        for frase in frases:
+            if " ".join(frase.split()) in self.cache:
+                continue
+            try:
+                async for _ in self.sintetizar(frase):
+                    pass
+            except Exception as e:  # noqa: BLE001 - sin red: ya se sintetizarán en su momento
+                log.debug("🔈 no pude precargar %r: %s", frase, e)
+                return
+        log.info("🔈 %d frases frecuentes listas en la caché de voz", len(self.cache))
+
+    async def _sintetizar(self, texto: str) -> AsyncIterator[bytes]:
+        proc = await self._tomar_ffmpeg()
 
         async def alimentar() -> None:
             try:

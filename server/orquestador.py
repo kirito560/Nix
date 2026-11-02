@@ -54,6 +54,9 @@ FRASE_SIN_CEREBRO = "Uy, se me trabó el cerebro, ¿me lo repites?"
 # Si se oyó voz pero la transcripción no es fiable, mejor pedir que lo repitan que responder a algo inventado.
 FRASE_NO_ENTENDI = "Perdón, no te entendí bien, ¿me lo repites?"
 TTS_EN_PARALELO = 2
+# Aperturas frecuentes de Nix (y las frases fijas): se sintetizan al arrancar para que suenen al instante.
+FRASES_FRECUENTES = ["¡Claro!", "Uy,", "Jaja,", "Mira,", "Oye,", "¡Obvio!", "¡Qué onda!", "Ni modo,", "¡Eso!",
+                     "Va,", "¡GG!", "¡Muy bien!", "Depende,", "La neta,", "¡Uff!"]
 FIN_DE_ORACION = (".", "!", "?", "…")
 # Si el filtro de tono quitó todo lo que iba a decir, algo amable en vez de quedarse callada.
 FRASE_SUAVE = "Jaja, va, ¿en qué estábamos?"

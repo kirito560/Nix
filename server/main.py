@@ -12,7 +12,8 @@ import sys
 
 from server.config import ConfigServidor
 from server.gateway.ws_server import Gateway
-from server.orquestador import Orquestador
+from server.orquestador import (FRASE_NO_ENTENDI, FRASE_SIN_CEREBRO, FRASE_SUAVE, FRASES_FRECUENTES,
+                                Orquestador)
 from server.personaje import cargar_personaje
 from server.pipeline import groq_http
 from server.pipeline.escucha import Escucha
@@ -65,6 +66,9 @@ async def principal() -> None:
             await groq_http.mantener_viva(cfg.groq_api_key)
 
     gateway = Gateway(cfg, crear_escucha, personaje.nombre, al_conectar=preparar, vista=vista)
+    if hasattr(tts, "precargar"):
+        asyncio.create_task(tts.precargar([FRASE_NO_ENTENDI, FRASE_SIN_CEREBRO, FRASE_SUAVE, *FRASES_FRECUENTES]),
+                            name="precargar-voz")
     calentador = asyncio.create_task(mantener_listo(cfg, gateway, tts), name="mantener-listo")
     parar = asyncio.Event()
     for senal in (signal.SIGINT, signal.SIGTERM):

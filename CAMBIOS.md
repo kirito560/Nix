@@ -495,3 +495,34 @@ total **p50 1495 / p95 2936 ms** (n=12):
   larga y sin comas. El total no se movió de forma medible (lo domina la variación de Groq).
 - **Costo:** si la primera oración se corta a la 5.ª palabra, la voz hace una pequeña pausa ahí, porque son dos
   síntesis.
+
+## 3. TTS en streaming (`server/pipeline/tts.py`)
+
+- **Confirmado: ya trabajaba en streaming.**
+  - Microsoft manda el MP3 en trozos de 720 bytes (120 ms de audio) mientras sintetiza; llegan en ráfagas.
+  - Cada trozo entra a ffmpeg al llegar, y el PCM sale en trozos de 100 ms. ffmpeg necesita 2 trozos para dar el
+    primer audio.
+  - No se espera a la frase completa.
+- **Probé pedir PCM directo a Microsoft** (`raw-24khz-16bit-mono-pcm` y otros): no devuelve audio. Solo da MP3.
+- **Hallazgo:** Microsoft guarda una caché de las frases que ya sintetizó.
+
+  | Caso | Primer audio | Detalle |
+  |---|---|---|
+  | Frase repetida | ~150 ms | (mis medidas anteriores eran así) |
+  | Frase nueva, 2–3 palabras | ~320 ms | (300–590 ms en general) |
+  | Frase nueva, 4–8 palabras | ~450 ms | |
+
+  Por eso dentro de una conversación real da 300–400 ms: el texto siempre es nuevo.
+- **Cambios:**
+  - **ffmpeg de reserva:** siempre hay uno ya arrancado. Primer PCM tras el MP3: 7 ms en vez de 42 ms (unos 35 ms
+    por frase).
+  - **Caché de voz propia** (frases de hasta 50 caracteres, 300 frases, solo en memoria): una frase corta que ya se
+    dijo sale al instante. Al arrancar se precargan las frases fijas y 15 aperturas típicas de Nix («Uy,», «Jaja,»,
+    «¡Obvio!», «¡Qué onda!»…).
+- **Medido** (`frase_1→tts_1er_audio`):
+  - antes, p50 372 / p95 801 ms;
+  - después, p50 380–385 / p95 630–730 ms.
+  - Sin cambio claro en el p50: lo domina el tiempo de Microsoft con texto nuevo. Los 35 ms de ffmpeg quedan
+    dentro del ruido.
+  - La caché solo ayuda cuando la primera frase se repite: no se nota en 12 turnos recién arrancado, sí en una
+    charla larga.
