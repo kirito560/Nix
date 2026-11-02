@@ -53,7 +53,8 @@ async def principal() -> None:
     def crear_escucha(enviar):
         detector = DetectorVoz(crear_puntuador(cfg.silero_onnx), umbral=cfg.vad_umbral,
                                silencio_ms=cfg.vad_silencio_ms, min_voz_ms=cfg.vad_min_voz_ms)
-        orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, historial, contexto=contexto)
+        orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, historial, contexto=contexto,
+                                  max_oraciones=cfg.respuesta_max_oraciones)
         return Escucha(detector, stt, orquestador, cfg.barge_in, cfg.barge_min_voz_ms, cfg.stt_adelanto_ms)
 
     async def preparar() -> None:

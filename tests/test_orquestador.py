@@ -24,13 +24,14 @@ class LLMFijo(ProveedorLLM):
             yield palabra + " "
 
 
-def orquestador(llm, historial=None):
+def orquestador(llm, historial=None, max_oraciones=0):
+    """Por defecto sin tope de oraciones: estas pruebas miran la tubería, no el largo de la respuesta."""
     enviados, registro = [], Registro()
 
     async def enviar(msg):
         enviados.append(msg)
 
-    o = Orquestador(NIX, llm, TTSStub(), enviar, registro, historial or Historial(10))
+    o = Orquestador(NIX, llm, TTSStub(), enviar, registro, historial or Historial(10), max_oraciones=max_oraciones)
     return o, enviados, registro
 
 

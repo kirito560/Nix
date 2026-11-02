@@ -20,6 +20,8 @@ from server.config import ConfigServidor
 
 log = logging.getLogger("nix.llm")
 
+MARGEN_RAZONAMIENTO = 100
+
 
 class ErrorLLM(RuntimeError):
     pass
@@ -62,6 +64,9 @@ class LLMGroq(ProveedorLLM):
                   "max_completion_tokens": self.max_tokens, "temperature": self.temperatura}
         if self.modelo.startswith("openai/gpt-oss") and self.razonamiento:
             cuerpo["reasoning_effort"] = self.razonamiento
+            # gpt-oss gasta tokens razonando antes de responder (~30 con "low", medido el 2026-11-02) y
+            # cuentan dentro del límite: se le da ese margen para que la respuesta no salga vacía.
+            cuerpo["max_completion_tokens"] = self.max_tokens + MARGEN_RAZONAMIENTO
         return cuerpo
 
     async def responder(self, mensajes: list[dict]) -> AsyncIterator[str]:

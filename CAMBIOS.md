@@ -301,3 +301,19 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - **Indicador, Haar real** (con el OpenCV instalado; si falta, la prueba se salta) **y servidor:** estado de la
   sesión, que el gateway olvida al desconectar, y la presencia va al prompt pero no al historial.
 - 225 pruebas pasan (`PRUEBAS.md`).
+
+---
+
+# Ronda 2: personalidad y conversación (2026-11-02)
+
+## 1. Respuestas cortas
+
+- **Prompt:** «una o dos frases; nada de listas, discursos ni explicaciones largas; si te piden algo largo, da lo
+  esencial en dos frases y ofrece seguir».
+- **`LLM_MAX_TOKENS` de 300 a 90.** Medido con Groq: Qwen no gasta tokens pensando y dos frases ocupan unos
+  27–38 tokens. Cambié también el valor en el `.env` del servidor.
+  - El modelo de respaldo, gpt-oss, sí razona (~30 tokens) y esos tokens cuentan dentro del límite. Para él se
+    suman 100 de margen, así la respuesta no sale vacía.
+- **Tope duro de 2 oraciones** (`RESPUESTA_MAX_ORACIONES`, variable nueva). Al terminar la 2.ª oración se cierra el
+  stream del LLM: no se paga ni se dice el resto.
+  - *Duda:* el tope por oraciones podía ser demasiado. Lo dejé porque el prompt solo no basta. Con 0 se apaga.

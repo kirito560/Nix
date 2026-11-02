@@ -42,7 +42,8 @@ class ConfigServidor:
     llm_modelo: str = "qwen/qwen3.8-27b"
     llm_modelo_respaldo: str = "openai/gpt-oss-120b"
     llm_razonamiento: str = "low"             # solo modelos gpt-oss: low | medium | high
-    llm_max_tokens: int = 300
+    llm_max_tokens: int = 90                  # una o dos frases (~30-60 tokens en español)
+    respuesta_max_oraciones: int = 2          # tope duro de oraciones por respuesta (0 = sin tope)
     llm_temperatura: float = 0.8
     historial_turnos: int = 10                # pares usuario/personaje que se recuerdan (la memoria llega en la fase 4)
     # TTS
@@ -90,7 +91,8 @@ class ConfigServidor:
             llm_modelo=e.texto("LLM_MODELO", "qwen/qwen3.8-27b"),
             llm_modelo_respaldo=e.texto("LLM_MODELO_RESPALDO", "openai/gpt-oss-120b"),
             llm_razonamiento=e.texto("LLM_RAZONAMIENTO", "low").lower(),
-            llm_max_tokens=e.entero("LLM_MAX_TOKENS", 300),
+            llm_max_tokens=e.entero("LLM_MAX_TOKENS", 90),
+            respuesta_max_oraciones=e.entero("RESPUESTA_MAX_ORACIONES", 2),
             llm_temperatura=e.decimal("LLM_TEMPERATURA", 0.8),
             historial_turnos=e.entero("HISTORIAL_TURNOS", 10),
             tts_proveedor=e.texto("TTS_PROVEEDOR", "auto").lower(),

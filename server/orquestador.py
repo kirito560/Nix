@@ -37,7 +37,8 @@ log = logging.getLogger("nix.orquestador")
 INSTRUCCIONES_VOZ = """
 ## CÓMO RESPONDES AHORA
 Hablas en voz alta en una conversación en tiempo real: todo lo que escribas se lee con tu voz.
-- Respuestas cortas: una a tres frases, salvo que te pidan algo largo.
+- Respuestas cortas: una o dos frases. Nada de listas, discursos ni explicaciones largas; si te piden algo
+  largo, da lo esencial en dos frases y ofrece seguir.
 - Sin emojis, sin markdown, sin listas y sin acotaciones entre asteriscos.
 - Lo que te dicen viene de un reconocimiento de voz: si algo no tiene sentido, pide que lo repitan.
 """
@@ -48,6 +49,7 @@ FRASE_SIN_CEREBRO = "Uy, se me trabó el cerebro. ¿Me lo repites?"
 # Si se oyó voz pero la transcripción no es fiable, mejor pedir que lo repitan que responder a algo inventado.
 FRASE_NO_ENTENDI = "No te entendí bien. ¿Me lo repites?"
 TTS_EN_PARALELO = 2
+FIN_DE_ORACION = (".", "!", "?", "…")
 
 
 def prompt_sistema(personaje: Personaje) -> str:
@@ -80,10 +82,11 @@ class Turno:
 class Orquestador:
     def __init__(self, personaje: Personaje, llm: ProveedorLLM, tts: ProveedorTTS,
                  enviar: Callable[[object], Awaitable[None]], registro: Registro, historial: Historial,
-                 contexto: Optional[Callable[[], str]] = None):
+                 contexto: Optional[Callable[[], str]] = None, max_oraciones: int = 2):
         self.personaje, self.llm, self.tts, self.enviar = personaje, llm, tts, enviar
         self.registro, self.historial = registro, historial
         self.contexto = contexto                 # p. ej. el resumen de la pantalla del usuario (o "")
+        self.max_oraciones = max_oraciones       # tope de oraciones por respuesta (0 = sin tope)
         self.sistema = prompt_sistema(personaje)
         self.turno: Optional[Turno] = None
         self.fin_reproduccion = 0.0
@@ -158,16 +161,32 @@ class Orquestador:
 
     async def _pensar(self, turno: Turno, mensajes: list[dict], frases: asyncio.Queue) -> None:
         segmentador = Segmentador()
+        oraciones = 0
+
+        async def poner(frase: str) -> bool:
+            """Manda la frase; devuelve True cuando ya se alcanzó el tope de oraciones."""
+            nonlocal oraciones
+            self._marcar_una_vez(turno.span, "frase_1")
+            await frases.put(frase)
+            if frase.rstrip().endswith(FIN_DE_ORACION):
+                oraciones += 1
+            return bool(self.max_oraciones) and oraciones >= self.max_oraciones
+
         try:
+            completa = False
             async with aclosing(self.llm.responder(mensajes)) as trozos:
                 async for trozo in trozos:
                     self._marcar_una_vez(turno.span, "llm_1er_token")
                     for frase in segmentador.agregar(trozo):
-                        self._marcar_una_vez(turno.span, "frase_1")
-                        await frases.put(frase)
-            for frase in segmentador.terminar():
-                self._marcar_una_vez(turno.span, "frase_1")
-                await frases.put(frase)
+                        if completa := await poner(frase):
+                            break
+                    if completa:
+                        log.info("✂️ respuesta cortada en %d oraciones", oraciones)
+                        break                     # aclosing cierra el stream: no se pagan más tokens
+            if not completa:
+                for frase in segmentador.terminar():
+                    if await poner(frase):
+                        break
         except Exception:
             log.exception("❌ el LLM (%s) falló", self.llm.nombre)
             if segmentador.emitidas == 0:
