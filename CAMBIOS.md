@@ -16,3 +16,42 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   pruebas, así que lo dejé.
 - **No quitado:** los campos del protocolo para visión, emociones y avatar (fases futuras) y
   `personajes/narwell.md` (se puede elegir con `PERSONAJE=narwell`).
+
+## 2. Audio del cliente
+
+- **Canales y frecuencia reales.** Cada dispositivo se consulta con `sd.query_devices` y se abre con sus canales
+  (como mucho 2; algunos dicen tener 16) y su frecuencia nativa. Después:
+  - el micrófono se pasa a mono **promediando** los canales y se lleva a 16 kHz;
+  - la voz de Nix se lleva a la frecuencia del altavoz y se copia a sus canales.
+  - *Duda:* si un micrófono estéreo solo trae señal en un canal, el promedio lo deja 6 dB más bajo. Elegí el
+    promedio por ser lo más simple; el medidor del servidor (🎚️) dirá si hace falta otra cosa.
+- **Remuestreo:** de 48 kHz se usa el decimador que ya existía; de cualquier otra frecuencia, un paso bajo más
+  interpolación lineal, con estado entre bloques (`Remuestreador`).
+- **El dúplex se sigue abriendo a 48 kHz** (lo necesita la cadena del cancelador de eco). Si la tarjeta no lo
+  acepta, se cae al modo separado, como antes.
+- **Nada de esto tumba el programa:**
+  - si falla el dúplex: aviso y micrófono + altavoz por separado (sin cancelación de eco);
+  - si falla el micrófono: error claro en el log y reintento cada 5 s;
+  - si falla el altavoz: error claro, Nix sigue sin voz y lo reintenta cada 5 s.
+- **APIs distintas:** si micrófono y altavoz son de APIs distintas (MME, DirectSound, WASAPI, WDM-KS), avisa en el log
+  **antes** de intentar abrirlos juntos. Igual lo intenta, como pediste.
+- **`--probar-audio`:** prueba el altavoz y el micrófono **configurados** (`MIC_DISPOSITIVO` / `ALTAVOZ_DISPOSITIVO`):
+  tono de 1 s, 2 s de grabación con su nivel, y si abren juntos (dúplex). Con `--todos` prueba **cada**
+  dispositivo de la lista.
+  - *Duda:* «abrir cada dispositivo» podía significar los configurados o todos. Por defecto, los configurados
+    (probar 40 dispositivos tarda y suena mucho); `--todos` hace lo otro.
+- **`--listar`** ya existía; ahora también dice qué micrófono y altavoz usará Nix, y su API.
+- Los avisos del audio usan el log en vez de `print`.
+- No cambió la conexión con el servidor ni ninguna variable del `.env`.
+
+## 3. Optimización
+
+- **Reproducción:** el búfer de voz (`ColaBytes`) ya no recorta su inicio en cada callback de 20 ms (con frases
+  largas eso copiaba todo lo pendiente); avanza un índice y compacta de vez en cuando.
+- **Dúplex:** sin copias extra de la salida. La energía del eco se calcula con `np.dot` en vez de crear arreglos.
+- **Bucle de asyncio:** el cancelador de eco tarda ~0,2 ms por trama de 20 ms (medido en el servidor), así que no
+  hace falta moverlo a otro hilo. Los callbacks de audio solo copian la trama y la pasan con
+  `call_soon_threadsafe`; si el bucle se atrasa, se descarta la trama en vez de bloquear.
+- **Envío:** una trama de 20 ms por mensaje; ya era eficiente, no cambió.
+- **Reconexión:** verificada. Espera 1, 2, 4… hasta 30 s entre intentos (nunca reintenta sin pausa) y no reintenta
+  si el token es incorrecto o si otro cliente la reemplazó. No cambió. El audio que no abre también espera 5 s.

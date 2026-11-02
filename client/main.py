@@ -6,6 +6,7 @@ responde el personaje, y reproduce su voz.
     uv run python -m client.main --wav prueba.wav                 # archivo, sin micrófono
     uv run python -m client.main --wav prueba.wav --salida r.wav  # guarda la voz en vez de reproducirla
     uv run python -m client.main --listar                         # dispositivos de audio
+    uv run python -m client.main --probar-audio                   # tono por el altavoz y nivel del micrófono
 """
 from __future__ import annotations
 
@@ -19,7 +20,8 @@ from pathlib import Path
 
 from websockets.exceptions import ConnectionClosed
 
-from client.audio_io import Altavoz, ArchivoWav, AudioDuplex, GrabadorWav
+from client.audio_io import (Altavoz, ArchivoWav, AudioDuplex, ErrorAudio, GrabadorWav, info_dispositivo,
+                             probar_audio)
 from client.ws_client import ErrorAutenticacion, ejecutar
 from shared.auth import validar_token
 from shared.config_base import Entorno, cargar_env
@@ -40,7 +42,7 @@ def crear_mostrar(salida):
     return mostrar
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
                         datefmt="%H:%M:%S")
     cargar_env()
@@ -58,11 +60,16 @@ def main() -> None:
     ap.add_argument("--espera", type=float, default=20.0,
                     help="con --wav: segundos que espera la respuesta al acabar el archivo")
     ap.add_argument("--listar", action="store_true", help="listar dispositivos de audio y salir")
-    args = ap.parse_args()
+    ap.add_argument("--probar-audio", action="store_true",
+                    help="tocar un tono en el altavoz, medir el micrófono y probar si abren juntos")
+    ap.add_argument("--todos", action="store_true", help="con --probar-audio: probar cada dispositivo")
+    args = ap.parse_args(argv)
     if args.listar:
-        import sounddevice as sd
-        print(sd.query_devices())
+        listar(_dispositivo(args.dispositivo), _dispositivo(args.altavoz))
         return
+    if args.probar_audio:
+        ok = probar_audio(_dispositivo(args.dispositivo), _dispositivo(args.altavoz), todos=args.todos)
+        sys.exit(0 if ok else 1)
     try:
         token = validar_token(e.texto("NIX_TOKEN"))
     except ValueError as err:
@@ -121,6 +128,23 @@ async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, a
         log.warning("🔌 %s; reintento en %.0f s", motivo, espera)
         await asyncio.sleep(espera)
         espera = min(espera * 2, 30.0)
+
+
+def listar(microfono=None, altavoz=None) -> None:
+    """Todos los dispositivos (> entrada y < salida predeterminadas de Windows) y los que usará Nix."""
+    try:
+        import sounddevice as sd
+        print(sd.query_devices())
+    except Exception as e:  # noqa: BLE001 - falta PortAudio, etc.
+        print(f"❌ no pude listar los dispositivos de audio: {e}")
+        return
+    print("\nNix usará (MIC_DISPOSITIVO / ALTAVOZ_DISPOSITIVO en el .env; vacío = el predeterminado):")
+    for nombre, valor, tipo in (("micrófono", microfono, "input"), ("altavoz", altavoz, "output")):
+        try:
+            print(f"  {nombre}: {info_dispositivo(sd, valor, tipo)}")
+        except ErrorAudio as e:
+            print(f"  {nombre}: ❌ {e}")
+    print("Para cancelación de eco, micrófono y altavoz deben ser de la misma API (MME, DirectSound, WASAPI...).")
 
 
 def _dispositivo(valor):

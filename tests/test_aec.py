@@ -129,7 +129,12 @@ def test_audio_duplex_con_tarjeta_falsa(monkeypatch):
             self.parar.set()
             self.hilo.join()
 
-    monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(RawStream=FlujoFalso))
+    def query_devices(_dispositivo=None, tipo=None):
+        return {"name": "tarjeta falsa", "index": 0, "hostapi": 0, "max_input_channels": 1,
+                "max_output_channels": 1, "default_samplerate": 48000.0}
+
+    monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(
+        RawStream=FlujoFalso, query_devices=query_devices, query_hostapis=lambda _i: {"name": "MME"}))
 
     async def correr():
         audio = AudioDuplex()
