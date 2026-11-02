@@ -4,3 +4,7 @@ pydantic==2.14.1
 python-dotenv==1.2.4
 numpy==2.5.4
 sounddevice==0.5.6
+# Captura de pantalla (apagada por defecto): mss captura, Pillow reduce y comprime, pynput los atajos.
+mss==10.2.0
+pillow==13.0.0
+pynput==1.8.2

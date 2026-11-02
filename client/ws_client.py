@@ -33,13 +33,23 @@ async def autenticar(ws: ClientConnection, token: str) -> AuthOk:
 
 async def ejecutar(url: str, token: str, tramas: AsyncIterator[bytes],
                    al_recibir: Callable[[object], Awaitable[None]], espera_final_s: float = 3.0,
-                   al_audio: Optional[Callable[[str, int, int, bytes], None]] = None) -> None:
+                   al_audio: Optional[Callable[[str, int, int, bytes], None]] = None,
+                   al_conectar: Optional[Callable[[Optional[Callable[[object], Awaitable[None]]]], None]] = None
+                   ) -> None:
     """Envía las tramas de audio y llama a `al_recibir` con cada mensaje del servidor y a
     `al_audio(turn_id, pts_ms, sample_rate, pcm)` con cada trama de voz.
+    `al_conectar(enviar)` recibe, ya autenticado, una función para mandar mensajes JSON (la captura de
+    pantalla la usa), y `al_conectar(None)` al cerrarse la conexión.
     Cuando se acaban las tramas (fin del WAV) espera `espera_final_s` las últimas respuestas y cierra."""
     async with connect(url, open_timeout=5, max_size=2 ** 22) as ws:
         ok = await autenticar(ws, token)
         log.info("✅ conectado con %s (personaje: %s)", url, ok.personaje)
+
+        async def enviar(msg) -> None:
+            await ws.send(msg.a_json())
+
+        if al_conectar is not None:
+            al_conectar(enviar)
 
         async def recibir():
             async for trama in ws:
@@ -63,5 +73,7 @@ async def ejecutar(url: str, token: str, tramas: AsyncIterator[bytes],
         except asyncio.TimeoutError:
             pass
         finally:
+            if al_conectar is not None:
+                al_conectar(None)
             receptor.cancel()
             await asyncio.gather(receptor, return_exceptions=True)

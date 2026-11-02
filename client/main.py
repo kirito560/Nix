@@ -7,6 +7,7 @@ responde el personaje, y reproduce su voz.
     uv run python -m client.main --wav prueba.wav --salida r.wav  # guarda la voz en vez de reproducirla
     uv run python -m client.main --listar                         # dispositivos de audio
     uv run python -m client.main --probar-audio                   # tono por el altavoz y nivel del micrófono
+    uv run python -m client.main --pantalla on                    # arrancar con la captura de pantalla encendida
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from websockets.exceptions import ConnectionClosed
 
 from client.audio_io import (Altavoz, ArchivoWav, AudioDuplex, ErrorAudio, GrabadorWav, info_dispositivo,
                              probar_audio)
+from client.screen_capture import EXCLUIDAS_POR_DEFECTO, Atajos, CapturaPantalla
 from client.ws_client import ErrorAutenticacion, ejecutar
 from shared.auth import validar_token
 from shared.config_base import Entorno, cargar_env
@@ -63,6 +65,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--probar-audio", action="store_true",
                     help="tocar un tono en el altavoz, medir el micrófono y probar si abren juntos")
     ap.add_argument("--todos", action="store_true", help="con --probar-audio: probar cada dispositivo")
+    ap.add_argument("--pantalla", choices=("on", "off"), default="off",
+                    help="captura de pantalla al arrancar (apagada por defecto; Ctrl+Alt+P la enciende o pausa)")
     args = ap.parse_args(argv)
     if args.listar:
         listar(_dispositivo(args.dispositivo), _dispositivo(args.altavoz))
@@ -89,7 +93,8 @@ def main(argv: list[str] | None = None) -> None:
             asyncio.run(ejecutar(args.servidor, token, fuente.tramas(), crear_mostrar(salida),
                                  espera_final_s=args.espera, al_audio=al_audio))
         else:
-            asyncio.run(conversar_siempre(args.servidor, token, fuente, salida, al_audio))
+            asyncio.run(conversar_con_pantalla(args.servidor, token, fuente, salida, al_audio,
+                                               crear_captura(e), encender=args.pantalla == "on"))
     except ErrorAutenticacion as err:
         log.error("❌ autenticación: %s", err)
         sys.exit(1)
@@ -113,7 +118,30 @@ def siguiente_espera(espera: float) -> float:
     return min(espera * 2, ESPERA_MAX_S)
 
 
-async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, al_audio) -> None:
+def crear_captura(e: Entorno) -> CapturaPantalla:
+    excluidas = e.lista("PANTALLA_EXCLUIR", "") or EXCLUIDAS_POR_DEFECTO
+    return CapturaPantalla(fps=e.decimal("PANTALLA_FPS", 1.0), umbral=int(e.decimal("PANTALLA_UMBRAL", 10)),
+                           enviar_imagen=e.booleano("PANTALLA_ENVIAR_IMAGEN", False), excluidas=excluidas)
+
+
+async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio, captura: CapturaPantalla,
+                                 encender: bool = False) -> None:
+    """La conversación de siempre, más la captura de pantalla (apagada salvo `encender`) y sus atajos."""
+    atajos = Atajos(captura)
+    atajos.iniciar(asyncio.get_running_loop())
+    if encender:
+        captura.activar()
+    tarea = asyncio.create_task(captura.correr(), name="pantalla")
+    try:
+        await conversar_siempre(url, token, fuente, salida, al_audio, al_conectar=captura.conectar)
+    finally:
+        tarea.cancel()
+        await asyncio.gather(tarea, return_exceptions=True)
+        atajos.detener()
+
+
+async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, al_audio,
+                            al_conectar=None) -> None:
     """Con el micrófono: si se corta la conexión (reinicio del servidor, Wi-Fi...), se reconecta sola,
     esperando 1, 2, 4... hasta 10 s. No reintenta si el token es incorrecto o si otro cliente la reemplazó."""
     espera = 1.0
@@ -121,7 +149,7 @@ async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, a
         inicio = time.monotonic()
         try:
             async with aclosing(fuente.tramas()) as tramas:
-                await ejecutar(url, token, tramas, crear_mostrar(salida), al_audio=al_audio)
+                await ejecutar(url, token, tramas, crear_mostrar(salida), al_audio=al_audio, al_conectar=al_conectar)
             return
         except ConnectionClosed as err:
             codigo = err.rcvd.code if err.rcvd else None

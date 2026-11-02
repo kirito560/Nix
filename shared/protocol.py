@@ -90,16 +90,21 @@ class AuthOk(_Mensaje):
 
 # Cliente -> servidor
 class VisionDelta(_Mensaje):
+    """La pantalla cambió (distancia pHash) y, opcionalmente, una descripción breve hecha en el cliente.
+    activa=False: el usuario apagó o pausó la captura (el servidor olvida el resumen de pantalla)."""
     type: Literal["vision.delta"] = "vision.delta"
     ts: int
-    phash_dist: int
-    caption: Optional[str] = None
+    phash_dist: int = Field(ge=0, le=64)
+    caption: Optional[str] = Field(default=None, max_length=300)
+    activa: bool = True
 
 
 class VisionFrame(_Mensaje):
+    """Imagen reducida de la pantalla (JPEG, ≤ 768 px de ancho). Solo si el usuario lo pidió."""
     type: Literal["vision.frame"] = "vision.frame"
     ts: int
-    jpeg_b64: str
+    jpeg_b64: str = Field(max_length=400_000)
+    caption: Optional[str] = Field(default=None, max_length=300)
 
 
 class UserState(_Mensaje):

@@ -138,3 +138,35 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   escalón en el borde de la trama. Lo cambié por un **limitador suave** (lineal hasta 0,7 y curva hasta 0,9),
   continuo y que nunca pasa del techo.
 - 170 pruebas pasan (`PRUEBAS.md`).
+
+---
+
+# Visión: Nix puede ver la pantalla (2026-11-02)
+
+## 1. Captura (`client/screen_capture.py`)
+
+- **Cómo se resuelve «no mandar la imagen salvo que el usuario lo pida».** Por defecto, cuando la pantalla cambia
+  (pHash), el cliente manda **solo una descripción breve hecha en el PC: el título de la ventana activa**
+  (`vision.delta`). La imagen reducida (≤ 768 px, JPEG ≤ 200 KB, `vision.frame`) sale solo si la pides:
+  - **Ctrl+Alt+M** («mira ahora»): una sola imagen;
+  - **`PANTALLA_ENVIAR_IMAGEN=1`**: en cada cambio.
+  - *Duda:* «descripción en el cliente o en el servidor». En el PC no hay modelo de visión (las claves viven en
+    el servidor), así que la descripción del cliente es el título de la ventana y la del servidor, la del modelo
+    de visión cuando llega una imagen.
+- **mss** a 1 fps por defecto (`PANTALLA_FPS`, entre 0,2 y 2), pantalla principal, reducida a 768 px con Pillow.
+- **pHash** de 64 bits (DCT de 32×32, en numpy). Solo se avisa si cambian ≥ `PANTALLA_UMBRAL` bits (10) y han
+  pasado ≥ 3 s desde el último aviso, para no inundar al servidor mientras haces scroll.
+- **Sin disco:** `grab` (nunca `shot`) y JPEG en `BytesIO`. La imagen se suelta al terminar cada vuelta.
+- **Encender y apagar:**
+  - `--pantalla on|off` al arrancar (por defecto `off`);
+  - **Ctrl+Alt+P** enciende o pausa al instante (pynput);
+  - al pausar se avisa al servidor (`activa=false`), que olvida lo que sabía de tu pantalla.
+  - *Duda:* `--pantalla on|off` es por arranque: no queda guardado. Así, si no lo pones, siempre arranca apagada.
+- **Ventanas excluidas:** si el título de la ventana activa contiene alguna palabra de `PANTALLA_EXCLUIR`
+  (contraseñas, gestores de claves, inicio de sesión, bancos mexicanos y PayPal), **no se captura**. Nix solo
+  recibe «ventana privada; no se mira».
+  - *Limitación:* solo se mira la ventana **activa**. Un banco abierto en otra ventana visible sí saldría en la
+    imagen. Por eso la imagen no sale si no la pides.
+- **Protocolo:** `vision.delta` lleva `activa` (por defecto `true`) y `vision.frame` lleva `caption`. Los dos con
+  límites de tamaño.
+- Dependencias nuevas del cliente: `mss`, `pillow`, `pynput`.
