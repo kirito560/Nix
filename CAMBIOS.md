@@ -331,3 +331,16 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   el log («🧹 frase descartada por el tono»). Si se quitara todo, dice «Jaja, va, ¿en qué estábamos?».
   - *Duda:* palabras como «tonto» pueden salir sin mala intención («me hice el tonto»). Elegí quitarlas igual: es
     mejor perder una frase que decir algo que suene feo.
+
+## 3. Aclaraciones
+
+- **Regla fija** en la escucha (`poco_claro`): si lo transcrito es **una sola palabra de menos de 4 letras** que no
+  es una respuesta corta conocida («sí», «no», «ok», «va», «sale», «qué», «hola», «gg»…), Nix no la manda al LLM
+  y dice «Perdón, no te entendí bien, ¿me lo repites?».
+- **El LLM decide lo demás** (frases más largas pero confusas o sin sentido): el prompt le pide que, en ese caso,
+  pida repetir en una sola frase y que no invente ni adivine.
+  - *Duda:* ¿hasta dónde llega la regla fija? Elegí la opción simple (una palabra muy corta). Una regla más amplia
+    pediría repetir cosas válidas como «Fortnite».
+- Ya existía: confianza baja de Whisper → pedir repetir; texto vacío o de un carácter → se ignora.
+- Las frases fijas quedaron en **una sola oración**: «Perdón, no te entendí bien, ¿me lo repites?» y «Uy, se me
+  trabó el cerebro, ¿me lo repites?».

@@ -75,3 +75,21 @@ def confianza_baja(segmentos, min_logprob: float = -1.0) -> Optional[str]:
         return None
     media = sum(lp * d for lp, d in pares) / sum(d for _, d in pares)
     return f"confianza baja (avg_logprob {media:.2f})" if media < min_logprob else None
+
+
+# Respuestas de una palabra corta que sí tienen sentido en una conversación (normalizadas, sin acentos).
+CORTAS_VALIDAS = {
+    "si", "no", "ok", "va", "ya", "sale", "que", "como", "hola", "ola", "bye", "gg", "nix", "obvio", "nel",
+    "nop", "simon", "aja", "uff", "wow", "jaja", "xd", "bien", "mal", "mas", "menos", "nada", "todo",
+    "dale", "listo", "eso", "esto", "cual", "quien", "donde", "cuando", "porque", "por", "pvp",
+}
+
+
+def poco_claro(texto: str) -> Optional[str]:
+    """Motivo si la frase es tan corta que lo más probable es que se entendiera mal: una sola palabra de menos de
+    4 letras que no es una respuesta corta conocida («ble», «tor»...). Lo que no tenga sentido pero sea más
+    largo lo decide el LLM, al que se le pide que en ese caso pida repetir."""
+    palabras = normalizar(texto or "").split()
+    if len(palabras) == 1 and len(palabras[0]) < 4 and palabras[0] not in CORTAS_VALIDAS:
+        return f"una sola palabra corta y poco clara ({texto!r})"
+    return None

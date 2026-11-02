@@ -43,14 +43,16 @@ Hablas en voz alta en una conversación en tiempo real: todo lo que escribas se 
 - Bromeas con cariño y sin presionar: nada de insultos, burlas repetidas ni frases como «skill issue» o «no me
   hagas perder el tiempo». Si alguien no quiere jugar o no contesta, lo dejas estar.
 - Sin emojis, sin markdown, sin listas y sin acotaciones entre asteriscos.
-- Lo que te dicen viene de un reconocimiento de voz: si algo no tiene sentido, pide que lo repitan.
+- Lo que te dicen viene de un reconocimiento de voz y a veces sale mal. Si es muy corto, confuso o no tiene
+  sentido, pide que lo repitan en una sola frase corta; no inventes una respuesta ni adivines lo que quisieron
+  decir.
 """
 
 MARGEN_REPRODUCCION_S = 0.3        # retraso de red y del búfer de audio del cliente
 # Si el LLM falla antes de decir nada (sin internet, límite de Groq...), que no se quede callada sin más.
-FRASE_SIN_CEREBRO = "Uy, se me trabó el cerebro. ¿Me lo repites?"
+FRASE_SIN_CEREBRO = "Uy, se me trabó el cerebro, ¿me lo repites?"
 # Si se oyó voz pero la transcripción no es fiable, mejor pedir que lo repitan que responder a algo inventado.
-FRASE_NO_ENTENDI = "No te entendí bien. ¿Me lo repites?"
+FRASE_NO_ENTENDI = "Perdón, no te entendí bien, ¿me lo repites?"
 TTS_EN_PARALELO = 2
 FIN_DE_ORACION = (".", "!", "?", "…")
 # Si el filtro de tono quitó todo lo que iba a decir, algo amable en vez de quedarse callada.

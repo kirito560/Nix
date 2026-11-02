@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from server.latencia import Span
 from server.orquestador import FRASE_NO_ENTENDI, FRASE_SIN_CEREBRO
-from server.pipeline.filtros_whisper import es_texto_vacio
+from server.pipeline.filtros_whisper import es_texto_vacio, poco_claro
 from server.pipeline.stt import ProveedorSTT, a_pcm16
 from server.pipeline.vad import DetectorVoz, Reagrupador
 
@@ -125,6 +125,10 @@ class Escucha:
                     return
                 if resultado.texto is None or es_texto_vacio(resultado.texto):
                     log.info("🙉 frase descartada: %s", resultado.motivo or f"texto vacío ({resultado.texto!r})")
+                    return
+                if (motivo := poco_claro(resultado.texto)) is not None:
+                    log.info("🙉 %s: pido que lo repita", motivo)
+                    await self.orquestador.decir(turno, FRASE_NO_ENTENDI)
                     return
                 log.info("🗣️ usuario: %s", resultado.texto)
                 await self.orquestador.al_texto_usuario(turno, resultado.texto, span)
