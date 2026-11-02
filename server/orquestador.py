@@ -89,11 +89,12 @@ class Turno:
 class Orquestador:
     def __init__(self, personaje: Personaje, llm: ProveedorLLM, tts: ProveedorTTS,
                  enviar: Callable[[object], Awaitable[None]], registro: Registro, historial: Historial,
-                 contexto: Optional[Callable[[], str]] = None, max_oraciones: int = 2):
+                 contexto: Optional[Callable[[], str]] = None, max_oraciones: int = 2, animo=None):
         self.personaje, self.llm, self.tts, self.enviar = personaje, llm, tts, enviar
         self.registro, self.historial = registro, historial
         self.contexto = contexto                 # p. ej. el resumen de la pantalla del usuario (o "")
         self.max_oraciones = max_oraciones       # tope de oraciones por respuesta (0 = sin tope)
+        self.animo = animo                       # server.animo.Animo: se ajusta después de cada respuesta
         self.sistema = prompt_sistema(personaje)
         self.turno: Optional[Turno] = None
         self.fin_reproduccion = 0.0
@@ -163,6 +164,8 @@ class Orquestador:
             if dicho and texto is not None:
                 self.historial.agregar("user", texto)
                 self.historial.agregar("assistant", dicho + (" —" if turno.interrumpido else ""))
+                if self.animo is not None:
+                    self.animo.tras_turno(texto)
             if not turno.interrumpido:
                 await self.enviar(LlmText(turn_id=turno.id, texto="", final=True))
 

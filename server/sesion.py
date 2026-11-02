@@ -4,6 +4,7 @@ No es memoria: nada de esto se guarda en disco ni entra en el historial de la co
 
   - historial: los últimos `max_turnos` turnos (usuario + Nix) de esta conversación, que el LLM recibe como
     contexto. Al desconectarse el PC se borran; no van a ninguna memoria de largo plazo.
+  - animo: energía, paciencia y cercanía de Nix (server/animo.py); solo cambian el tono del prompt.
   - presente: si hay alguien frente a la cámara (None = cámara apagada o sin dato). Solo se usa como una línea
     en el prompt de sistema del LLM, turno a turno.
 """
@@ -12,6 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from server.animo import Animo
 from server.orquestador import Historial
 from shared.protocol import PresenciaUpdate
 
@@ -25,6 +27,7 @@ TEXTO_AUSENTE = ("Presencia (cámara): el usuario no está frente a la cámara; 
 class EstadoSesion:
     def __init__(self, max_turnos: int = 10):
         self.historial = Historial(max_turnos)
+        self.animo = Animo()
         self.presente: Optional[bool] = None
 
     def actualizar_presencia(self, msg: PresenciaUpdate) -> None:

@@ -355,3 +355,22 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   plazo.
   - *Duda:* un corte de Wi-Fi de un segundo también borra la conversación. Es lo que pediste («se borran al
     desconectarse») y es lo más simple.
+
+## 5. Estados de ánimo (`server/animo.py`)
+
+- **Tres valores de 0 a 1:** energía (base 0,7), paciencia (0,7) y cercanía (0,5).
+- **Después de cada respuesta** cambian según señales sencillas de lo que dijiste:
+  - risas o «GG»: más energía y cercanía;
+  - «gracias» o cariño: más cercanía;
+  - «cansado» o «aburrido»: menos energía;
+  - insultos o «no sirves»: menos paciencia y cercanía;
+  - platicar sin más: +0,01 de cercanía.
+- **Topes:** cada valor se mueve **como mucho 0,1 por respuesta** y siempre queda entre 0 y 1.
+- **Vuelta a la base:** la distancia a la base se reduce a la mitad cada 10 min.
+- **Solo cambia el tono:** una línea en el prompt de sistema, por ejemplo «Tu ánimo ahora (solo cambia tu tono; no lo
+  menciones): con mucha energía, paciente, amistosa». La voz no cambia.
+- **Vive en la sesión** y se olvida al desconectarse.
+- Las frases fijas («no te entendí») no lo mueven.
+  - *Duda:* ¿ánimo por sesión o de todo el servidor? Elegí por sesión, igual que el historial: es lo más simple y
+    no deja nada guardado.
+  - Es una primera versión muy simple de lo que en el plan es el «motor emocional» (fase 3).
