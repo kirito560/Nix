@@ -67,3 +67,105 @@ async def test_si_groq_retira_el_modelo_pasa_al_respaldo():
     assert [t async for t in llm.responder([])] == ["hola"]
     assert [t async for t in llm.responder([])] == ["hola"]
     assert modelos == ["qwen/viejo", "openai/gpt-oss-120b", "openai/gpt-oss-120b"]
+
+
+# --------------------------------------------------------------------------- respaldo por límite de uso
+LIMITE_429 = {"error": {"message": "Rate limit reached for model `qwen/qwen3.8-27b` ... on input tokens per "
+                                   "minute (ITPM): Limit 7000, Used 6374, Requested 1323.",
+                        "type": "tokens", "code": "rate_limit_exceeded"}}
+
+
+def groq_con_estados(estados: dict[str, int], pedidos: list):
+    """Groq falso: responde con el estado HTTP que diga `estados` para cada modelo (200 = una respuesta normal)."""
+    def manejar(request: httpx.Request) -> httpx.Response:
+        cuerpo = json.loads(request.content)
+        pedidos.append(cuerpo)
+        estado = estados.get(cuerpo["model"], 200)
+        if estado != 200:
+            return httpx.Response(estado, json=LIMITE_429)
+        texto = "Va, yo te ayudo." if cuerpo["model"].startswith("openai/") else "Hola desde Qwen."
+        return httpx.Response(200, content=sse({"choices": [{"delta": {"content": texto}}]}),
+                              headers={"content-type": "text/event-stream"})
+    return httpx.AsyncClient(transport=httpx.MockTransport(manejar))
+
+
+def llm_con_respaldo(estados, pedidos):
+    return LLMGroq("CLAVE", "qwen/qwen3.8-27b", max_tokens=90, respaldo="openai/gpt-oss-120b",
+                   cliente=groq_con_estados(estados, pedidos))
+
+
+@pytest.mark.parametrize("estado", [429, 503, 498])
+async def test_limite_de_uso_responde_el_respaldo(estado, caplog):
+    pedidos = []
+    llm = llm_con_respaldo({"qwen/qwen3.8-27b": estado}, pedidos)
+    assert "".join([t async for t in llm.responder([{"role": "user", "content": "hola"}])]) == "Va, yo te ayudo."
+    assert [p["model"] for p in pedidos] == ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
+    assert pedidos[1]["messages"] == pedidos[0]["messages"]               # la misma conversación
+    assert pedidos[1]["reasoning_effort"] == "low" and pedidos[1]["max_completion_tokens"] == 90 + 100
+    assert "RESPALDO" in caplog.text and str(estado) in caplog.text
+
+
+async def test_el_respaldo_es_solo_para_ese_turno():
+    pedidos = []
+    estados = {"qwen/qwen3.8-27b": 429}
+    llm = llm_con_respaldo(estados, pedidos)
+    await _todo(llm)
+    del estados["qwen/qwen3.8-27b"]                                       # pasó el minuto: Qwen ya responde
+    assert await _todo(llm) == "Hola desde Qwen."
+    assert llm.modelo == "qwen/qwen3.8-27b"
+    assert [p["model"] for p in pedidos] == ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
+
+
+async def test_si_el_respaldo_tambien_falla_sube_el_error(caplog):
+    pedidos = []
+    llm = llm_con_respaldo({"qwen/qwen3.8-27b": 429, "openai/gpt-oss-120b": 429}, pedidos)
+    with pytest.raises(ErrorLLM, match="429"):
+        await _todo(llm)
+    assert len(pedidos) == 2
+    assert "RESPALDO: openai/gpt-oss-120b también falló" in caplog.text
+
+
+async def test_sin_respaldo_el_429_sube_igual():
+    pedidos = []
+    llm = LLMGroq("CLAVE", "qwen/qwen3.8-27b", cliente=groq_con_estados({"qwen/qwen3.8-27b": 429}, pedidos))
+    with pytest.raises(ErrorLLM):
+        await _todo(llm)
+    assert len(pedidos) == 1
+
+
+async def test_otros_errores_no_usan_el_respaldo():
+    pedidos = []
+    llm = llm_con_respaldo({"qwen/qwen3.8-27b": 401}, pedidos)            # clave mala: el respaldo no ayudaría
+    with pytest.raises(ErrorLLM, match="401"):
+        await _todo(llm)
+    assert len(pedidos) == 1
+
+
+async def test_con_el_orquestador_el_usuario_no_nota_el_cambio():
+    """429 en Qwen: Nix responde con el respaldo. Luego los dos en 429: dice la frase de error. Y luego, con
+    Qwen de vuelta, sigue conversando normal."""
+    from server.orquestador import FRASE_SIN_CEREBRO
+    from shared.protocol import LlmText
+    from tests.test_orquestador import orquestador, span
+
+    pedidos = []
+    estados = {"qwen/qwen3.8-27b": 429}
+    o, enviados, _ = orquestador(llm_con_respaldo(estados, pedidos))
+
+    async def turno(i, texto):
+        enviados.clear()
+        await o.al_texto_usuario(f"00000000-0000-0000-0000-00000000000{i}", texto, span())
+        await o.turno.tarea
+        return [m.texto for m in enviados if isinstance(m, LlmText) and m.texto]
+
+    assert await turno(1, "hola") == ["Va, yo te ayudo."]
+    estados["openai/gpt-oss-120b"] = 429
+    assert await turno(2, "¿sigues?") == [FRASE_SIN_CEREBRO]
+    estados.clear()
+    assert await turno(3, "¿y ahora?") == ["Hola desde Qwen."]
+    # El historial tiene lo que dijo el respaldo, como si lo hubiera dicho ella (el usuario no nota el cambio).
+    assert {"role": "assistant", "content": "Va, yo te ayudo."} in o.historial.mensajes
+
+
+async def _todo(llm) -> str:
+    return "".join([t async for t in llm.responder([{"role": "user", "content": "hola"}])])

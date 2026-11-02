@@ -1,11 +1,11 @@
 # Resultado de pytest
 
-Ejecutado el 2026-11-02 19:07 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
+Ejecutado el 2026-11-02 19:18 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
 Las pruebas de audio usan un sounddevice falso y señales sintéticas; las de pantalla, un mss y un pynput falsos
 con pantallas dibujadas con Pillow; las de cámara, un OpenCV falso (y una con el clasificador Haar real).
-Las de Groq y las de personalidad usan LLM y servidores HTTP falsos: no gastan la clave.
+Las de Groq y las de personalidad usan LLM y servidores HTTP falsos (también para simular el 429): no gastan la clave.
 
-**============================= 264 passed in 30.99s =============================**
+**============================= 272 passed in 31.00s =============================**
 
 ```
 tests/test_aec.py::test_cancela_el_eco_cuando_solo_habla_ella PASSED
@@ -103,6 +103,14 @@ tests/test_llm.py::test_reasoning_effort_solo_en_gpt_oss PASSED
 tests/test_llm.py::test_error_de_groq PASSED
 tests/test_llm.py::test_stub_y_eleccion PASSED
 tests/test_llm.py::test_si_groq_retira_el_modelo_pasa_al_respaldo PASSED
+tests/test_llm.py::test_limite_de_uso_responde_el_respaldo[429] PASSED
+tests/test_llm.py::test_limite_de_uso_responde_el_respaldo[503] PASSED
+tests/test_llm.py::test_limite_de_uso_responde_el_respaldo[498] PASSED
+tests/test_llm.py::test_el_respaldo_es_solo_para_ese_turno PASSED
+tests/test_llm.py::test_si_el_respaldo_tambien_falla_sube_el_error PASSED
+tests/test_llm.py::test_sin_respaldo_el_429_sube_igual PASSED
+tests/test_llm.py::test_otros_errores_no_usan_el_respaldo PASSED
+tests/test_llm.py::test_con_el_orquestador_el_usuario_no_nota_el_cambio PASSED
 tests/test_orquestador.py::test_turno_completo PASSED
 tests/test_orquestador.py::test_historial_entre_turnos PASSED
 tests/test_orquestador.py::test_interrumpir_corta_y_manda_flush PASSED
@@ -272,5 +280,5 @@ tests/test_vad.py::test_silencio_no_genera_eventos PASSED
 tests/test_vad.py::test_frase_completa PASSED
 tests/test_vad.py::test_ruido_corto_se_descarta PASSED
 tests/test_vad.py::test_dos_frases_separadas PASSED
-============================= 264 passed in 30.99s =============================
+============================= 272 passed in 31.00s =============================
 ```
