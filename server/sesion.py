@@ -19,9 +19,10 @@ from shared.protocol import PresenciaUpdate
 
 log = logging.getLogger("nix.sesion")
 
-TEXTO_PRESENTE = "Presencia (cámara): el usuario está frente a la cámara."
-TEXTO_AUSENTE = ("Presencia (cámara): el usuario no está frente a la cámara; puede haberse levantado y no oírte "
-                 "bien.")
+# Es solo contexto: Nix no lo comenta por su cuenta ni habla porque cambie (ningún código responde a la presencia).
+_NO_MENCIONAR = "Es solo contexto: no lo menciones salvo que el usuario pregunte si lo ves o si está ahí."
+TEXTO_PRESENTE = f"Presencia (cámara): el usuario está frente a la cámara. {_NO_MENCIONAR}"
+TEXTO_AUSENTE = f"Presencia (cámara): el usuario no está frente a la cámara. {_NO_MENCIONAR}"
 
 
 class EstadoSesion:

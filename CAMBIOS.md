@@ -374,3 +374,11 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   - *Duda:* ¿ánimo por sesión o de todo el servidor? Elegí por sesión, igual que el historial: es lo más simple y
     no deja nada guardado.
   - Es una primera versión muy simple de lo que en el plan es el «motor emocional» (fase 3).
+
+## 6. Presencia por cámara
+
+- **Ningún código hace hablar a Nix por la presencia** (lo revisé: el gateway solo actualiza el dato de la sesión).
+  No había respuestas automáticas que quitar.
+- El texto que va al prompt ya no invita a comentarlo. Antes decía «puede haberse levantado y no oírte bien»;
+  ahora dice «el usuario está / no está frente a la cámara. Es solo contexto: no lo menciones salvo que el
+  usuario pregunte si lo ves o si está ahí».
