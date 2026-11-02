@@ -203,7 +203,7 @@ def test_microfono_abre_con_sus_canales_y_entrega_mono_16k(instalar):
     sd = instalar()
 
     async def correr():
-        fuente = Microfono(0).tramas()
+        fuente = Microfono(0, acondicionar=False).tramas()
         tramas = [await fuente.__anext__() for _ in range(25)]
         await fuente.aclose()
         return tramas

@@ -138,6 +138,7 @@ def test_audio_duplex_con_tarjeta_falsa(monkeypatch):
 
     async def correr():
         audio = AudioDuplex()
+        audio.guarda.informe_cada_s = 2.0          # informes más seguidos para ver la convergencia
         voz = voz_falsa(12, 1)
         t = np.arange(int(24000 * 12)) / 24000
         voz24 = np.interp(t, np.arange(len(voz)) / SR, voz)

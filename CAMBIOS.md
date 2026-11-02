@@ -55,3 +55,38 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - **Envío:** una trama de 20 ms por mensaje; ya era eficiente, no cambió.
 - **Reconexión:** verificada. Espera 1, 2, 4… hasta 30 s entre intentos (nunca reintenta sin pausa) y no reintenta
   si el token es incorrecto o si otro cliente la reemplazó. No cambió. El audio que no abre también espera 5 s.
+
+---
+
+# Segunda pasada: eco, señal, transcripción y estabilidad (2026-11-02)
+
+## 1. Cancelación de eco (`client/senal.py`: `GuardaEco`)
+
+- **Qué significaba el «-10 a 5 dB» del log:** un valor negativo quiere decir que la salida del cancelador sonaba
+  **más fuerte** que el micrófono. El filtro se desajustaba y metía ruido en vez de quitar eco.
+- **Límite de +3 dB:** si la salida pasa de 3 dB por encima del micrófono, se baja a ese tope. Si sigue así
+  0,5 s mientras suena Nix, el filtro se reinicia (`CanceladorEco.reiniciar()`) y se avisa en el log.
+- **Elegí el «umbral mínimo de señal»** en vez del suelo de -6 dB. Un suelo de -6 dB obligaría a **subir** la
+  salida cuando el cancelador quita mucho eco, es decir, a devolver el eco. Ese eco era lo que hacía que Nix se
+  interrumpiera sola. Con el umbral, cuando el micrófono solo trae ruido (< -55 dBFS) pasa el micrófono tal cual,
+  sin tocarlo.
+- **Suavizado:** la ganancia baja con τ = 10 ms y sube con τ = 200 ms, y dentro de cada trama cambia en rampa.
+  El paso entre «micrófono tal cual» y «salida del cancelador» es igual de gradual.
+- **Log:** «🎧 eco atenuado N dB» sale cada **5 s de audio con su voz sonando**, no por bloques ni por energía.
+  Cuento segundos de audio, no de reloj, para que sea igual en las pruebas.
+
+## 2. Calidad de la señal (`client/senal.py`: `PasaAltas`, `Normalizador`, `Acondicionador`)
+
+- **Formato confirmado:** el cliente ya mandaba PCM16 mono a 16 kHz. El dúplex pasa de 48 kHz a 16 kHz con el
+  decimador, y el micrófono suelto con `Remuestreador`. Cada trama mide exactamente 640 bytes (`Tramador`). No
+  hacía falta remuestreo nuevo.
+- **Pasa-altas:** Butterworth de 2.º orden a 80 Hz, después del cancelador. Va después porque el cancelador
+  necesita la señal sin filtrar para modelar el eco.
+- **Normalización:** mide el RMS del último segundo y lo lleva a -23 dBFS. La ganancia va de -12 a **+12 dB como
+  tope**; con solo ruido (< -50 dBFS) se queda quieta. Baja rápido (0,1 s), sube lento (1 s), y un limitador
+  impide que una trama pase de 0,9.
+  - *Duda:* con solo ruido, ¿bajar la ganancia o mantenerla? La mantengo: si la bajara, el inicio de cada frase
+    sonaría flojo.
+- **Orden:** micrófono → cancelador de eco → guardián → pasa-altas → normalización → servidor. Sin dúplex:
+  micrófono → pasa-altas → normalización.
+- Las tareas 1 y 2 van **en un solo commit**: tocan las mismas líneas de `client/audio_io.py`.

@@ -31,6 +31,15 @@ class CanceladorEco:
         self.picos_ref: deque = deque(maxlen=memoria_geigel)             # máximos de los últimos ~500 ms
         self.adaptando = False
 
+    def reiniciar(self) -> None:
+        """Olvida lo aprendido (si el filtro se desajustó) y vuelve a aprender desde cero."""
+        self.w[:] = 0
+        self.x[:] = 0
+        self.ref_prev[:] = 0
+        self.potencia[:] = 1e-3
+        self.picos_ref.clear()
+        self.adaptando = False
+
     def procesar(self, mic: np.ndarray, ref: np.ndarray) -> np.ndarray:
         """mic y ref: n muestras float (-1..1), alineadas. Devuelve el micrófono sin el eco."""
         n = self.n

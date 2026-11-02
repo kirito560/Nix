@@ -38,6 +38,7 @@ from typing import AsyncIterator, Callable, Optional
 import numpy as np
 
 from client.aec import CanceladorEco, Decimador3, Interpolador2, Retardo, _paso_bajo
+from client.senal import Acondicionador, GuardaEco
 from shared.protocol import BYTES_TRAMA, MS_TRAMA, MUESTRAS_TRAMA, SR_ENTRADA
 
 log = logging.getLogger("nix.audio")
@@ -145,17 +146,22 @@ class Remuestreador:
 
 
 class Tramador:
-    """Junta muestras de cualquier tamaño y entrega tramas exactas de MUESTRAS_TRAMA en PCM16."""
+    """Junta muestras de cualquier tamaño y entrega tramas exactas de MUESTRAS_TRAMA en PCM16 (mono, 16 kHz:
+    lo que espera el servidor). Si recibe un `acondicionador`, lo aplica a cada trama antes de entregarla."""
 
-    def __init__(self):
+    def __init__(self, acondicionador: Optional[Acondicionador] = None):
         self.pendiente = np.zeros(0)
+        self.acondicionador = acondicionador
 
     def agregar(self, x: np.ndarray) -> list[bytes]:
         self.pendiente = np.concatenate([self.pendiente, x]) if len(self.pendiente) else np.asarray(x, np.float64)
         n = len(self.pendiente) // MUESTRAS_TRAMA
         if not n:
             return []
-        tramas = [_a_pcm16(t) for t in self.pendiente[:n * MUESTRAS_TRAMA].reshape(n, MUESTRAS_TRAMA)]
+        bloques = self.pendiente[:n * MUESTRAS_TRAMA].reshape(n, MUESTRAS_TRAMA)
+        if self.acondicionador is not None:
+            bloques = [self.acondicionador.procesar(b) for b in bloques]
+        tramas = [_a_pcm16(b) for b in bloques]
         self.pendiente = self.pendiente[n * MUESTRAS_TRAMA:]
         return tramas
 
@@ -215,8 +221,8 @@ def _meter(cola: asyncio.Queue, item) -> None:
 
 # ---------------------------------------------------------------------------------------- entrada
 class Microfono:
-    def __init__(self, dispositivo: Optional[int | str] = None):
-        self.dispositivo = dispositivo
+    def __init__(self, dispositivo: Optional[int | str] = None, acondicionar: bool = True):
+        self.dispositivo, self.acondicionar = dispositivo, acondicionar
 
     async def tramas(self) -> AsyncIterator[bytes]:
         sd = _sd()
@@ -237,7 +243,7 @@ class Microfono:
             raise ErrorAudio(f"no pude abrir el micrófono {info}: {e}") from e
         log.info("🎤 micrófono: %s", info)
         a_16k = Decimador3() if info.sr == 3 * SR_ENTRADA else Remuestreador(info.sr, SR_ENTRADA)
-        tramador = Tramador()
+        tramador = Tramador(Acondicionador() if self.acondicionar else None)
         try:
             while True:
                 datos = await cola.get()
@@ -361,7 +367,12 @@ class AudioDuplex:
         self.interpolador = Interpolador2()
         self.remuestreo: Optional[Remuestreador] = None
         self.separado: Optional[Altavoz] = None      # si no hubo flujo dúplex
-        self.eco_db: list[float] = []
+        self.guarda = GuardaEco()
+
+    @property
+    def eco_db(self) -> list[float]:
+        """Atenuación del eco medida cada 5 s de su voz sonando."""
+        return self.guarda.atenuaciones_db
 
     # ------------------------------------------------------------------ salida
     def reproducir(self, sample_rate: int, pcm: bytes) -> None:
@@ -446,21 +457,15 @@ class AudioDuplex:
                      latencia_ms, "sí" if self.aec else "no")
             retardo = Retardo(max(0, round(SR_ENTRADA * (retraso_ms - 10) / 1000)))
             dec_mic, dec_ref = Decimador3(), Decimador3()
-            energia = [0.0, 0.0]
+            acondicionador = Acondicionador()
             while True:
                 mic_pcm, ref_pcm = await cola.get()
-                limpio = dec_mic.procesar(a_mono(mic_pcm, mic.canales))
+                voz = dec_mic.procesar(a_mono(mic_pcm, mic.canales))
                 if self.aec is not None:
                     ref = retardo.procesar(dec_ref.procesar(_a_float(ref_pcm)))
-                    entrada, limpio = limpio, self.aec.procesar(limpio, ref)
-                    if self.aec.adaptando:
-                        energia[0] += float(np.dot(entrada, entrada))
-                        energia[1] += float(np.dot(limpio, limpio))
-                        if energia[0] > 50.0:                   # ~unos segundos de su voz por el micrófono
-                            self.eco_db.append(10 * np.log10(energia[0] / max(energia[1], 1e-9)))
-                            log.info("🎧 eco atenuado %.0f dB", self.eco_db[-1])
-                            energia = [0.0, 0.0]
-                yield _a_pcm16(limpio)
+                    limpio = self.aec.procesar(voz, ref)
+                    voz = self.guarda.procesar(voz, limpio, self.aec, self.aec.adaptando)
+                yield _a_pcm16(acondicionador.procesar(voz))
 
 
 # ---------------------------------------------------------------------------------------- prueba
