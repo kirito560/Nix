@@ -126,3 +126,7 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
 - El cliente se instaló en el PC (192.168.1.64), se conectó y se autenticó, pero el VAD no detectó voz.
 - Añadido al gateway un medidor de nivel del micrófono: cada 10 s registra cuántos segundos de audio llegan y
   su nivel/pico en dBFS, con aviso si es casi silencio. Sirve para diagnosticar micrófono equivocado o mudo.
+- Primera conversación real desde el PC (micrófono 14 y auriculares 17 del BKD-11, DirectSound, latencia de la
+  tarjeta 280 ms): llegan frases y Nix responde, pero el barge-in la cortaba en cada turno, a los 1-3 s de
+  empezar a hablar (su propia voz volvía al micrófono). Para probar: `BARGE_IN=0` y STT `whisper-large-v3`
+  (más preciso que turbo; había errores como «No, Torin»). Solo en .env del servidor.
