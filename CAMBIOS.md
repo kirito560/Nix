@@ -97,3 +97,20 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   voz detectada 2 veces`. «Voz detectada» cuenta las frases que el VAD empezó: estén o no descartadas
   después.
 - Solo escribe mientras llega audio, que con el cliente conectado es siempre. Si no hay cliente, no hay línea.
+
+## 4. Transcripción (`server/pipeline/stt.py`, `filtros_whisper.py`, `escucha.py`, `orquestador.py`)
+
+- **Idioma:** confirmado. A Groq ya se mandaba `language="es"` (variable `IDIOMA`, que vale `es`).
+- **Prompt de contexto:** Groq Whisper acepta `prompt`. Se manda «Nix, Minecraft, PvP, Roblox, Visual Studio,
+  VTube Studio.».
+  - Es una variable **nueva** del `.env`, `STT_PROMPT`; no se renombró ninguna. Si no la pones, se usa ese valor.
+  - Whisper a veces «transcribe» el propio prompt cuando solo hay ruido; esos textos se descartan.
+  - Deepgram (no se usa hoy) no recibe estas palabras. Queda pendiente: su parámetro equivalente es `keyterm`.
+- **Vacías o de un carácter:** se descartan antes del LLM con cualquier proveedor (`es_texto_vacio`, en la
+  escucha).
+- **Confianza baja:** Groq da `avg_logprob` por segmento. Si el promedio, ponderado por la duración, es menor que
+  `STT_MIN_LOGPROB` (variable nueva; por defecto **-1,0**, el umbral que usa Whisper), Nix **no responde** a lo
+  que entendió y dice «No te entendí bien. ¿Me lo repites?». En el log queda lo que entendió y su confianza.
+  - *Duda:* el umbral. Elegí el estándar de Whisper; si pide repetir demasiado, se baja (p. ej. -1,2) en el `.env`.
+- Las frases fijas (`Orquestador.decir`) no pasan por el LLM, no se guardan en el historial y no cuentan para
+  las estadísticas de latencia.

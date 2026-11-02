@@ -27,6 +27,10 @@ class ConfigServidor:
     groq_api_key: str = ""
     groq_modelo_stt: str = "whisper-large-v3-turbo"
     idioma: str = "es"
+    # Palabras que Whisper debe reconocer bien (prompt de contexto) y confianza mínima (avg_logprob):
+    # por debajo, Nix pide que se lo repitan en vez de responder a algo mal entendido.
+    stt_prompt: str = "Nix, Minecraft, PvP, Roblox, Visual Studio, VTube Studio."
+    stt_min_logprob: float = -1.0
     # VAD
     silero_onnx: str = "/datos/modelos/silero_vad.onnx"
     vad_umbral: float = 0.5
@@ -72,6 +76,8 @@ class ConfigServidor:
             groq_api_key=e.texto("GROQ_API_KEY"),
             groq_modelo_stt=e.texto("GROQ_MODELO_STT", "whisper-large-v3-turbo"),
             idioma=e.texto("IDIOMA", "es"),
+            stt_prompt=e.texto("STT_PROMPT", "Nix, Minecraft, PvP, Roblox, Visual Studio, VTube Studio."),
+            stt_min_logprob=e.decimal("STT_MIN_LOGPROB", -1.0),
             silero_onnx=e.texto("SILERO_ONNX", "/datos/modelos/silero_vad.onnx"),
             vad_umbral=e.decimal("VAD_UMBRAL", 0.5),
             vad_silencio_ms=e.decimal("VAD_SILENCIO_MS", 400.0),

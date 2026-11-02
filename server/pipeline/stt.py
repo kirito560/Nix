@@ -25,7 +25,8 @@ from urllib.parse import urlencode
 import numpy as np
 
 from server.config import ConfigServidor
-from server.pipeline.filtros_whisper import duracion_voz_s, validar_transcripcion
+from server.pipeline.filtros_whisper import (confianza_baja, duracion_voz_s, repite_el_prompt,
+                                             validar_transcripcion)
 
 log = logging.getLogger("nix.stt")
 
@@ -34,6 +35,7 @@ log = logging.getLogger("nix.stt")
 class Transcripcion:
     texto: Optional[str]          # None si se descartó
     motivo: str = ""              # por qué se descartó
+    repetir: bool = False         # se oyó voz pero se entendió mal: pedir que lo repitan
 
 
 class SesionSTT(abc.ABC):
@@ -124,17 +126,26 @@ class _SesionGroq(_SesionAcumulada):
         if voz < 0.4:
             return Transcripcion(None, f"poca voz ({voz:.2f} s)")
         datos = await self.proveedor.transcribir(audio)
-        texto, motivo = validar_transcripcion(datos.get("text", ""), datos.get("segments"), voz)
-        return Transcripcion(texto, motivo)
+        segmentos = datos.get("segments")
+        texto, motivo = validar_transcripcion(datos.get("text", ""), segmentos, voz)
+        if texto is None:
+            return Transcripcion(None, motivo)
+        if repite_el_prompt(texto, self.proveedor.prompt):
+            return Transcripcion(None, f"repitió el prompt de contexto ({texto!r})")
+        if (baja := confianza_baja(segmentos, self.proveedor.min_logprob)) is not None:
+            return Transcripcion(None, f"{baja}: {texto!r}", repetir=True)
+        return Transcripcion(texto)
 
 
 class STTGroqWhisper(ProveedorSTT):
     nombre = "groq"
     URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
-    def __init__(self, api_key: str, modelo: str, idioma: str, cliente=None):
+    def __init__(self, api_key: str, modelo: str, idioma: str, cliente=None, prompt: str = "",
+                 min_logprob: float = -1.0):
         from server.pipeline import groq_http
         self.api_key, self.modelo, self.idioma = api_key, modelo, idioma
+        self.prompt, self.min_logprob = prompt, min_logprob
         self.http = cliente or groq_http.cliente()
 
     async def abrir(self) -> SesionSTT:
@@ -151,7 +162,7 @@ class STTGroqWhisper(ProveedorSTT):
             self.URL, headers={"Authorization": f"Bearer {self.api_key}"},
             files={"file": ("frase.wav", buf.getvalue(), "audio/wav")},
             data={"model": self.modelo, "language": self.idioma, "response_format": "verbose_json",
-                  "temperature": "0"})
+                  "temperature": "0", **({"prompt": self.prompt} if self.prompt else {})})
         r.raise_for_status()
         return r.json()
 
@@ -235,7 +246,8 @@ def crear_stt(cfg: ConfigServidor) -> ProveedorSTT:
     if eleccion == "deepgram" and cfg.deepgram_api_key:
         return STTDeepgram(cfg.deepgram_api_key, cfg.deepgram_modelo, cfg.deepgram_idioma)
     if eleccion == "groq" and cfg.groq_api_key:
-        return STTGroqWhisper(cfg.groq_api_key, cfg.groq_modelo_stt, cfg.idioma)
+        return STTGroqWhisper(cfg.groq_api_key, cfg.groq_modelo_stt, cfg.idioma, prompt=cfg.stt_prompt,
+                              min_logprob=cfg.stt_min_logprob)
     if eleccion != "stub":
         log.warning("🎙️ STT %r sin API key; uso el STT simulado (stub)", eleccion)
     else:

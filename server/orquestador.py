@@ -45,6 +45,8 @@ Hablas en voz alta en una conversación en tiempo real: todo lo que escribas se 
 MARGEN_REPRODUCCION_S = 0.3        # retraso de red y del búfer de audio del cliente
 # Si el LLM falla antes de decir nada (sin internet, límite de Groq...), que no se quede callada sin más.
 FRASE_SIN_CEREBRO = "Uy, se me trabó el cerebro. ¿Me lo repites?"
+# Si se oyó voz pero la transcripción no es fiable, mejor pedir que lo repitan que responder a algo inventado.
+FRASE_NO_ENTENDI = "No te entendí bien. ¿Me lo repites?"
 TTS_EN_PARALELO = 2
 
 
@@ -68,8 +70,8 @@ class Historial:
 
 
 class Turno:
-    def __init__(self, turn_id: str, span: Span):
-        self.id, self.span = turn_id, span
+    def __init__(self, turn_id: str, span: Span, medir: bool = True):
+        self.id, self.span, self.medir = turn_id, span, medir
         self.tarea: Optional[asyncio.Task] = None
         self.dicho: list[str] = []
         self.interrumpido = False
@@ -98,6 +100,15 @@ class Orquestador:
         turno.tarea = asyncio.create_task(self._turno(turno, texto), name=f"turno-{turn_id[:8]}")
         self.turno = turno
 
+    async def decir(self, turn_id: str, frase: str) -> None:
+        """Dice una frase fija, sin pasar por el LLM ni guardarla en el historial (avisos: no te entendí, falló
+        el reconocimiento de voz...). No cuenta para las estadísticas de latencia."""
+        if self.hablando:
+            await self.interrumpir("frase fija")
+        turno = Turno(turn_id, Span(turn_id), medir=False)
+        turno.tarea = asyncio.create_task(self._turno(turno, None, fija=frase), name=f"aviso-{turn_id[:8]}")
+        self.turno = turno
+
     async def interrumpir(self, motivo: str) -> None:
         turno, self.fin_reproduccion = self.turno, 0.0
         if turno is None:
@@ -115,11 +126,14 @@ class Orquestador:
             await asyncio.gather(self.turno.tarea, return_exceptions=True)
 
     # ------------------------------------------------------------------ un turno
-    async def _turno(self, turno: Turno, texto: str) -> None:
-        mensajes = self.historial.para_llm(self.sistema, texto)
+    async def _turno(self, turno: Turno, texto: Optional[str], fija: Optional[str] = None) -> None:
         frases: asyncio.Queue[Optional[str]] = asyncio.Queue()
         audios: asyncio.Queue = asyncio.Queue()
-        tareas = [asyncio.create_task(self._pensar(turno, mensajes, frases), name="pensar"),
+        if fija is not None:
+            pensar = self._frase_fija(fija, frases)
+        else:
+            pensar = self._pensar(turno, self.historial.para_llm(self.sistema, texto), frases)
+        tareas = [asyncio.create_task(pensar, name="pensar"),
                   asyncio.create_task(self._sintetizar(turno, frases, audios), name="sintetizar")]
         try:
             await self._emitir(turno, audios)
@@ -134,7 +148,7 @@ class Orquestador:
                 t.cancel()
             await asyncio.gather(*tareas, return_exceptions=True)
             dicho = " ".join(turno.dicho)
-            if dicho:
+            if dicho and texto is not None:
                 self.historial.agregar("user", texto)
                 self.historial.agregar("assistant", dicho + (" —" if turno.interrumpido else ""))
             if not turno.interrumpido:
@@ -158,6 +172,11 @@ class Orquestador:
                 await frases.put(FRASE_SIN_CEREBRO)
         finally:
             await frases.put(None)
+
+    @staticmethod
+    async def _frase_fija(frase: str, frases: asyncio.Queue) -> None:
+        await frases.put(frase)
+        await frases.put(None)
 
     async def _sintetizar(self, turno: Turno, frases: asyncio.Queue, audios: asyncio.Queue) -> None:
         limite = asyncio.Semaphore(TTS_EN_PARALELO)
@@ -198,7 +217,7 @@ class Orquestador:
             while (pcm := await cola.get()) is not None:
                 self._marcar_una_vez(turno.span, "tts_1er_audio")
                 await self.enviar(codificar_audio_out(turno.id, pts_ms, self.tts.sample_rate, pcm))
-                if "audio_enviado" not in dict(turno.span.marcas):
+                if turno.medir and "audio_enviado" not in dict(turno.span.marcas):
                     turno.span.marcar("audio_enviado")
                     self.registro.cerrar(turno.span)
                 duracion_s = len(pcm) / 2 / self.tts.sample_rate

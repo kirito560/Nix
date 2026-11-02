@@ -22,6 +22,8 @@ import uuid
 from typing import TYPE_CHECKING
 
 from server.latencia import Span
+from server.orquestador import FRASE_NO_ENTENDI
+from server.pipeline.filtros_whisper import es_texto_vacio
 from server.pipeline.stt import ProveedorSTT, a_pcm16
 from server.pipeline.vad import DetectorVoz, Reagrupador
 
@@ -111,8 +113,12 @@ class Escucha:
                 resultado = await sesion.finalizar(usar_adelanto=adelantado_de == t_voz_fin)
                 terminada = True
                 span.marcar("stt_final")
-                if resultado.texto is None:
-                    log.info("🙉 frase descartada: %s", resultado.motivo)
+                if resultado.repetir:
+                    log.info("🙉 no se entendió bien (%s): pido que lo repita", resultado.motivo)
+                    await self.orquestador.decir(turno, FRASE_NO_ENTENDI)
+                    return
+                if resultado.texto is None or es_texto_vacio(resultado.texto):
+                    log.info("🙉 frase descartada: %s", resultado.motivo or f"texto vacío ({resultado.texto!r})")
                     return
                 log.info("🗣️ usuario: %s", resultado.texto)
                 await self.orquestador.al_texto_usuario(turno, resultado.texto, span)

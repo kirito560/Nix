@@ -53,3 +53,25 @@ def validar_transcripcion(texto: str, segmentos=None, voz_s: Optional[float] = N
     if probs and min(probs) >= max_no_speech:
         return None, f"no_speech_prob {min(probs):.2f}"
     return texto, ""
+
+
+def es_texto_vacio(texto: Optional[str]) -> bool:
+    """Vacía o de un solo carácter (sin contar espacios ni signos): nunca se manda al LLM."""
+    return len(normalizar(texto or "").replace(" ", "")) < 2
+
+
+def repite_el_prompt(texto: str, prompt: str) -> bool:
+    """Whisper a veces «transcribe» el prompt de contexto cuando no entiende nada (ruido, silencio)."""
+    t, p = normalizar(texto), normalizar(prompt)
+    return bool(t and p) and len(t.split()) >= 2 and t in p
+
+
+def confianza_baja(segmentos, min_logprob: float = -1.0) -> Optional[str]:
+    """Motivo si el promedio de avg_logprob de los segmentos (ponderado por su duración) es menor que
+    `min_logprob`; None si es suficiente o si el proveedor no la da."""
+    pares = [(s["avg_logprob"], max(float(s.get("end", 0)) - float(s.get("start", 0)), 0.01))
+             for s in (segmentos or []) if s.get("avg_logprob") is not None]
+    if not pares:
+        return None
+    media = sum(lp * d for lp, d in pares) / sum(d for _, d in pares)
+    return f"confianza baja (avg_logprob {media:.2f})" if media < min_logprob else None
