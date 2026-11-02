@@ -112,8 +112,8 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
 
 ## Siguiente paso
 
-1. Subir a GitHub los commits locales de la limpieza (cuando Kirito lo apruebe), hacer `git pull` en el PC y
-   correr `--probar-audio`. Con micrófono y altavoz que funcionen, volver a encender el barge-in
+1. Subir a GitHub los commits locales (limpieza y audio/transcripción; cuando Kirito lo apruebe), hacer
+   `git pull` en el PC, correr `--probar-audio` y conversar mirando el medidor (`🎚️`) y `🎧 eco atenuado`. Con micrófono y altavoz que funcionen, volver a encender el barge-in
    (`BARGE_IN=1` en el `.env` del servidor) y ver si Nix ya no se interrumpe sola.
 2. Escuchar si Qwen convence o se cambia a `gpt-oss-120b`, y si `whisper-large-v3` entiende mejor que turbo.
 3. Kirito decide si paga una voz más rápida (y STT en streaming) para acercarse a ~500 ms.
@@ -149,3 +149,24 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
 - Búfer de reproducción sin recortes por callback.
 - 127 pruebas pasan (`PRUEBAS.md`), 19 nuevas con un sounddevice falso. **Falta probarlo con la tarjeta real del PC.**
 - En el `.env` del servidor siguen `BARGE_IN=0` y `GROQ_MODELO_STT=whisper-large-v3`, de la prueba anterior.
+
+### 2026-11-02 — eco, señal, transcripción y estabilidad (commits locales, sin push)
+- **Eco:** `GuardaEco` (`client/senal.py`):
+  - limita la salida del cancelador a +3 dB sobre el micrófono y lo reinicia si se desajusta;
+  - deja pasar el micrófono cuando solo hay ruido;
+  - cambios suaves; log cada 5 s.
+  - El log anterior (-10 a +5 dB) mostraba que el filtro se desajustaba.
+- **Señal:** pasa-altas de 80 Hz y normalización a -23 dBFS por ventanas de 1 s (tope +12 dB, limitador suave).
+  Se confirmó que al servidor llega PCM16 mono a 16 kHz.
+- **Medidor del servidor:** RMS, segundos de audio y voces detectadas cada 10 s.
+- **Transcripción:**
+  - prompt de contexto (`STT_PROMPT`);
+  - se descartan textos vacíos o de un carácter;
+  - con confianza baja (`STT_MIN_LOGPROB`, -1,0) Nix pide que lo repitas.
+- **Estabilidad:** reconexión 1, 2, 4, 8, 10 s; si falla la transcripción de Groq, Nix lo dice y sigue escuchando.
+- 170 pruebas pasan (`PRUEBAS.md`); detalle y decisiones en `CAMBIOS.md`.
+- **Pendiente:**
+  - probar todo con la tarjeta real del PC;
+  - ajustar `STT_MIN_LOGPROB` si pide repetir demasiado o muy poco;
+  - volver a encender el barge-in (`BARGE_IN=1`) cuando el eco quede bien;
+  - `keyterm` para Deepgram (no se usa hoy).

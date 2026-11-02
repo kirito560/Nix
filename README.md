@@ -163,6 +163,26 @@ uv run --python .venv python -m client.main --wav x.wav --salida r.wav   # guard
 uv run --python .venv pytest -q
 ```
 
+### Medidor del micrófono (en el servidor)
+
+Cada 10 s, mientras el PC está conectado, el servidor escribe cuánto audio le llegó, a qué volumen y cuántas
+veces detectó voz:
+
+```bash
+journalctl --user -u nix -f | grep --line-buffered -E "🎚️|🗣️|🙉|🎧"
+```
+
+```
+🎚️ micrófono: 10.0 s de audio en 10 s | RMS -27 dBFS, pico -6 dBFS | voz detectada 2 veces
+```
+
+- **RMS** entre -35 y -20 dBFS mientras hablas: bien. Por debajo de -50, o el aviso «casi silencio»: el
+  micrófono es el equivocado o está silenciado.
+- **Voz detectada 0 veces** aunque hablaste: no llega voz (micrófono o volumen).
+- **Menos de 10 s de audio en 10 s:** se pierden tramas por la red o el PC va atrasado.
+- `🙉` explica por qué se descartó una frase (poca voz, alucinación, confianza baja…). `🎧 eco atenuado` sale en
+  la ventana del PC.
+
 ### ¿Cómo sé que se conectó?
 
 - En el **PC** aparece `✅ conectado con ws://192.168.1.50:8765 (personaje: Nix)` y después
@@ -196,12 +216,22 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
 - **Cancelación de eco (AEC, en el cliente):** micrófono y altavoz van en un solo flujo de audio a 48 kHz,
   así cada trozo del micrófono llega junto con lo que sonaba en ese momento. Un filtro adaptativo
   (`client/aec.py`) aprende el camino altavoz → habitación → micrófono y resta su voz. Tarda unos segundos
-  en aprender; en pantalla sale `🎧 eco atenuado N dB` (más de 20 dB es bueno). Si la tarjeta no acepta el
-  flujo doble, sigue sin AEC y lo avisa. Con audífonos no hace falta: `AEC=0` o `--sin-aec`.
+  en aprender; cada 5 s de su voz sonando sale `🎧 eco atenuado N dB` (más de 20 dB es bueno). Un vigilante
+  (`client/senal.py`) impide que la salida suene más de 3 dB por encima del micrófono; si el filtro se
+  desajusta, lo reinicia y lo avisa. Si la tarjeta no acepta el flujo doble, sigue sin AEC y lo avisa. Con
+  audífonos no hace falta: `AEC=0` o `--sin-aec`.
+- **Limpieza de la voz (en el cliente):** después del AEC, un pasa-altas de 80 Hz quita zumbido y viento, y un
+  normalizador lleva el volumen a -23 dBFS por ventanas de 1 s (como mucho +12 dB, para no subir el ruido).
+  Al servidor llega PCM16 mono a 16 kHz.
+- **Transcripción:** Whisper recibe el idioma (`IDIOMA=es`) y un prompt con palabras que se dicen seguido
+  (`STT_PROMPT`: Nix, Minecraft, PvP, Roblox…). Se descartan textos vacíos o de un carácter. Si Whisper no
+  está seguro (`avg_logprob` menor que `STT_MIN_LOGPROB`, por defecto -1,0), Nix dice «No te entendí bien.
+  ¿Me lo repites?» en vez de responder a algo mal entendido.
 - **Transcripción adelantada:** cuando llevas `STT_ADELANTO_MS` (200 ms) callado, ya se empieza a transcribir;
   si a los `VAD_SILENCIO_MS` (400 ms) la frase termina sin más voz, se usa ese resultado (~200 ms menos).
-- **Si Groq falla**, dice «Uy, se me trabó el cerebro. ¿Me lo repites?» en vez de quedarse callada.
-- **El cliente se reconecta solo** si se corta la conexión (1, 2, 4… hasta 30 s entre intentos).
+- **Si Groq falla** (en la transcripción o en el LLM), dice «Uy, se me trabó el cerebro. ¿Me lo repites?» en
+  vez de quedarse callada, y sigue escuchando.
+- **El cliente se reconecta solo** si se corta la conexión (1, 2, 4, 8 y luego 10 s entre intentos).
 - Sin `GROQ_API_KEY`, el STT y el LLM son simulados (la voz sí es real).
 
 ## Seguridad
