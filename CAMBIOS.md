@@ -199,3 +199,23 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - **Doble llave:** el servidor sigue ignorando todo lo de pantalla si `VISION_HABILITADA=0`. En el `.env` de este
   servidor lo puse en **1** para que funcione cuando enciendas la captura en el PC. En el código y en
   `.env.example`, el valor por defecto sigue siendo 0.
+
+## 4. Pruebas (`tests/test_pantalla.py`, 32)
+
+- **pHash:** la misma pantalla con ruido queda cerca y otra pantalla, lejos; solo se avisa cuando cambia; no más
+  de un aviso cada 3 s; «mira ahora».
+- **Tamaño:**
+  - se reduce a 768 px sin deformar y nunca se agranda;
+  - el JPEG no pasa del límite, ni con ruido puro;
+  - una pantalla 4K sale ≤ 768 px y ≤ 200 KB;
+  - el protocolo rechaza imágenes y textos enormes.
+- **Nada en disco:** captura con un mss falso más una imagen pedida. Ninguna apertura de archivo para escribir,
+  `Image.save` solo a `BytesIO`, `shot()` prohibido, y ni la carpeta de trabajo ni la temporal ganan archivos.
+- **Apagada al iniciar:** el objeto nace apagado, conectado no captura nada, y `client.main` sin `--pantalla`
+  arranca apagado.
+- **Resto:** pausa (avisa al servidor y al indicador), ventanas excluidas, atajos (con y sin pynput),
+  indicador, stub y Groq (falso), la `Vista` describe solo la última, el resumen respeta el tope y caduca, el
+  resumen llega al prompt del LLM y el gateway lo ignora si `VISION_HABILITADA=0`.
+- **Fallo encontrado:** el primer aviso podía quedar bloqueado si el reloj marcaba menos de 3 s (empezaba con «último
+  envío = 0»). Corregido: empieza en «nunca».
+- Pillow se añadió a las dependencias de pruebas del servidor. 202 pruebas pasan (`PRUEBAS.md`).

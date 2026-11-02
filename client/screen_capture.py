@@ -142,7 +142,7 @@ class CapturaPantalla:
         self.pedida = False                                # «mira ahora»: la próxima va con imagen
         self.enviar: Optional[Callable[[object], Awaitable[None]]] = None
         self.ultimo_hash: Optional[int] = None
-        self.ultimo_envio = 0.0
+        self.ultimo_envio = float("-inf")              # nunca se ha enviado nada
         self.en_privada = False
         self.enviados = 0
 

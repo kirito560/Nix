@@ -1,10 +1,10 @@
 # Resultado de pytest
 
-Ejecutado el 2026-11-02 18:15 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
-Las pruebas de audio usan un sounddevice falso y señales sintéticas: no tocan una tarjeta de sonido real.
-Las de Groq usan un servidor HTTP falso: no gastan la clave.
+Ejecutado el 2026-11-02 18:26 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
+Las pruebas de audio usan un sounddevice falso y señales sintéticas; las de pantalla, un mss y un pynput falsos
+con pantallas dibujadas con Pillow. Las de Groq usan un servidor HTTP falso: no gastan la clave.
 
-**============================= 170 passed in 21.04s =============================**
+**============================= 202 passed in 23.07s =============================**
 
 ```
 tests/test_aec.py::test_cancela_el_eco_cuando_solo_habla_ella PASSED
@@ -86,6 +86,38 @@ tests/test_orquestador.py::test_turno_completo PASSED
 tests/test_orquestador.py::test_historial_entre_turnos PASSED
 tests/test_orquestador.py::test_interrumpir_corta_y_manda_flush PASSED
 tests/test_orquestador.py::test_si_falla_el_llm_no_se_cae PASSED
+tests/test_pantalla.py::test_phash_misma_pantalla_cerca_y_otra_lejos PASSED
+tests/test_pantalla.py::test_solo_avisa_cuando_la_pantalla_cambia PASSED
+tests/test_pantalla.py::test_no_avisa_mas_de_una_vez_cada_intervalo PASSED
+tests/test_pantalla.py::test_mira_ahora_manda_una_imagen_aunque_no_cambie PASSED
+tests/test_pantalla.py::test_reducir_a_768_px_sin_deformar PASSED
+tests/test_pantalla.py::test_jpeg_no_pasa_del_limite PASSED
+tests/test_pantalla.py::test_la_imagen_enviada_es_pequena PASSED
+tests/test_pantalla.py::test_el_protocolo_rechaza_imagenes_y_textos_enormes PASSED
+tests/test_pantalla.py::test_no_se_guarda_nada_en_disco PASSED
+tests/test_pantalla.py::test_apagada_al_iniciar PASSED
+tests/test_pantalla.py::test_apagada_no_captura_aunque_este_conectada PASSED
+tests/test_pantalla.py::test_el_cliente_arranca_con_la_pantalla_apagada PASSED
+tests/test_pantalla.py::test_pausar_avisa_al_servidor_y_al_indicador PASSED
+tests/test_pantalla.py::test_ventanas_excluidas[BBVA M\xe9xico - Banca en l\xednea] PASSED
+tests/test_pantalla.py::test_ventanas_excluidas[Bitwarden] PASSED
+tests/test_pantalla.py::test_ventanas_excluidas[Iniciar sesi\xf3n - Google] PASSED
+tests/test_pantalla.py::test_ventanas_excluidas[Cambiar CONTRASE\xd1A] PASSED
+tests/test_pantalla.py::test_ventanas_normales_no_excluidas PASSED
+tests/test_pantalla.py::test_en_una_ventana_privada_no_se_captura PASSED
+tests/test_pantalla.py::test_atajos_de_teclado PASSED
+tests/test_pantalla.py::test_sin_pynput_los_atajos_no_tumban_el_cliente PASSED
+tests/test_pantalla.py::test_indicador_visible PASSED
+tests/test_pantalla.py::test_crear_vision_sin_clave_usa_stub PASSED
+tests/test_pantalla.py::test_stub_da_pantalla_sin_descripcion PASSED
+tests/test_pantalla.py::test_vision_groq_manda_la_imagen_y_devuelve_la_descripcion PASSED
+tests/test_pantalla.py::test_vista_describe_solo_la_ultima_si_llegan_varias PASSED
+tests/test_pantalla.py::test_vista_rechaza_imagenes_grandes_o_invalidas PASSED
+tests/test_pantalla.py::test_vista_descripcion_del_cliente_y_pausa PASSED
+tests/test_pantalla.py::test_resumen_respeta_el_limite_de_tokens PASSED
+tests/test_pantalla.py::test_resumen_caduca_y_no_repite PASSED
+tests/test_pantalla.py::test_el_resumen_llega_al_prompt_del_llm PASSED
+tests/test_pantalla.py::test_el_gateway_ignora_la_pantalla_si_esta_deshabilitada PASSED
 tests/test_personaje.py::test_nix_por_defecto PASSED
 tests/test_personaje.py::test_personaje_elegido_por_entorno PASSED
 tests/test_personaje.py::test_cada_personaje_tiene_su_carpeta_de_datos PASSED
@@ -177,5 +209,5 @@ tests/test_vad.py::test_silencio_no_genera_eventos PASSED
 tests/test_vad.py::test_frase_completa PASSED
 tests/test_vad.py::test_ruido_corto_se_descarta PASSED
 tests/test_vad.py::test_dos_frases_separadas PASSED
-============================= 170 passed in 21.04s =============================
+============================= 202 passed in 23.07s =============================
 ```

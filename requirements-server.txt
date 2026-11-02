@@ -10,3 +10,4 @@ edge-tts==7.3.1        # voz del personaje (necesita ffmpeg: sudo apt install ff
 # pruebas
 pytest==9.2.0
 pytest-asyncio==1.4.1
+pillow==13.0.0         # las pruebas de la captura de pantalla del cliente
