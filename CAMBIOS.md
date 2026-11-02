@@ -279,3 +279,25 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 
   Una prueba exige que empiece por «Nix», que no contenga «Nx» y que sea ASCII. Las líneas impresas en la consola
   conservan sus emojis, porque esas sí se veían bien.
+
+## 4. Pruebas (`tests/test_camara.py`, 20)
+
+- **Arranca apagada:**
+  - el objeto nace apagado;
+  - conectado y apagado no abre la cámara;
+  - `client.main` sin `--camara` la deja apagada; con `--camara on` pide encenderla.
+- **Nunca escribe archivos:** OpenCV falso en el que `imwrite`, `imencode` y `VideoWriter` lanzan error. Ninguna
+  apertura de archivo para escribir y ningún archivo nuevo en la carpeta de trabajo ni en la temporal. Además,
+  después de cada paso ni `Presencia` ni la cámara guardan un frame.
+- **Solo al cambiar:**
+  - parpadeo de un frame sin cara: no manda nada;
+  - «ausente» solo tras 4 s;
+  - no se repite;
+  - el mensaje solo tiene `type`, `ts`, `presente` y `activa`;
+  - al reconectar manda el estado actual.
+- **Sin cámara o sin OpenCV:** queda apagada, lo avisa, el bucle no falla y la conversación sigue con
+  `--camara on`.
+- **Apagar:** suelta la cámara y avisa al servidor y al indicador. Ctrl+Alt+C apaga pero no enciende.
+- **Indicador, Haar real** (con el OpenCV instalado; si falta, la prueba se salta) **y servidor:** estado de la
+  sesión, que el gateway olvida al desconectar, y la presencia va al prompt pero no al historial.
+- 225 pruebas pasan (`PRUEBAS.md`).

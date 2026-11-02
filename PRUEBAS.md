@@ -1,10 +1,11 @@
 # Resultado de pytest
 
-Ejecutado el 2026-11-02 18:26 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
+Ejecutado el 2026-11-02 18:48 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
 Las pruebas de audio usan un sounddevice falso y señales sintéticas; las de pantalla, un mss y un pynput falsos
-con pantallas dibujadas con Pillow. Las de Groq usan un servidor HTTP falso: no gastan la clave.
+con pantallas dibujadas con Pillow; las de cámara, un OpenCV falso (y una con el clasificador Haar real).
+Las de Groq usan un servidor HTTP falso: no gastan la clave.
 
-**============================= 202 passed in 23.07s =============================**
+**============================= 225 passed in 25.97s =============================**
 
 ```
 tests/test_aec.py::test_cancela_el_eco_cuando_solo_habla_ella PASSED
@@ -35,6 +36,26 @@ tests/test_auth.py::test_firma_y_verificacion PASSED
 tests/test_auth.py::test_la_firma_de_un_rol_no_sirve_para_el_otro PASSED
 tests/test_auth.py::test_el_token_no_aparece_en_la_firma PASSED
 tests/test_auth.py::test_token_corto_rechazado PASSED
+tests/test_camara.py::test_arranca_apagada PASSED
+tests/test_camara.py::test_apagada_no_abre_la_camara_aunque_este_conectada PASSED
+tests/test_camara.py::test_el_cliente_arranca_con_la_camara_apagada PASSED
+tests/test_camara.py::test_solo_manda_cuando_cambia PASSED
+tests/test_camara.py::test_ausente_solo_tras_4_segundos_sin_cara PASSED
+tests/test_camara.py::test_solo_sale_un_booleano PASSED
+tests/test_camara.py::test_al_reconectar_manda_el_estado_actual PASSED
+tests/test_camara.py::test_nunca_escribe_archivos PASSED
+tests/test_camara.py::test_el_frame_no_sobrevive_a_la_deteccion PASSED
+tests/test_camara.py::test_sin_camara_queda_apagada_y_avisa PASSED
+tests/test_camara.py::test_sin_opencv_queda_apagada_y_avisa PASSED
+tests/test_camara.py::test_sin_camara_el_bucle_no_falla PASSED
+tests/test_camara.py::test_con_camara_on_y_sin_camara_el_cliente_sigue PASSED
+tests/test_camara.py::test_desactivar_suelta_la_camara_y_avisa_al_servidor PASSED
+tests/test_camara.py::test_ctrl_alt_c_apaga_la_camara_y_no_la_enciende PASSED
+tests/test_camara.py::test_indicador_de_camara PASSED
+tests/test_camara.py::test_haar_real_de_opencv PASSED
+tests/test_camara.py::test_estado_de_sesion PASSED
+tests/test_camara.py::test_el_gateway_guarda_la_presencia_en_la_sesion_y_la_olvida_al_desconectar PASSED
+tests/test_camara.py::test_la_presencia_va_al_prompt_y_no_al_historial PASSED
 tests/test_edge_pool.py::test_reusa_conexiones_y_repone_las_reservas PASSED
 tests/test_edge_pool.py::test_si_la_conexion_del_pool_esta_muerta_abre_otra PASSED
 tests/test_edge_pool.py::test_sin_conexion_usa_el_respaldo PASSED
@@ -108,6 +129,7 @@ tests/test_pantalla.py::test_en_una_ventana_privada_no_se_captura PASSED
 tests/test_pantalla.py::test_atajos_de_teclado PASSED
 tests/test_pantalla.py::test_sin_pynput_los_atajos_no_tumban_el_cliente PASSED
 tests/test_pantalla.py::test_indicador_visible PASSED
+tests/test_pantalla.py::test_el_titulo_dice_nix_y_es_ascii PASSED
 tests/test_pantalla.py::test_crear_vision_sin_clave_usa_stub PASSED
 tests/test_pantalla.py::test_stub_da_pantalla_sin_descripcion PASSED
 tests/test_pantalla.py::test_vision_groq_manda_la_imagen_y_devuelve_la_descripcion PASSED
@@ -136,6 +158,8 @@ tests/test_protocol.py::test_mensajes_ida_y_vuelta[vision.delta0] PASSED
 tests/test_protocol.py::test_mensajes_ida_y_vuelta[vision.delta1] PASSED
 tests/test_protocol.py::test_mensajes_ida_y_vuelta[vision.frame] PASSED
 tests/test_protocol.py::test_mensajes_ida_y_vuelta[user.state] PASSED
+tests/test_protocol.py::test_mensajes_ida_y_vuelta[presencia.update0] PASSED
+tests/test_protocol.py::test_mensajes_ida_y_vuelta[presencia.update1] PASSED
 tests/test_protocol.py::test_mensajes_ida_y_vuelta[playback.ack] PASSED
 tests/test_protocol.py::test_mensajes_ida_y_vuelta[stt.text] PASSED
 tests/test_protocol.py::test_mensajes_ida_y_vuelta[avatar.cmd] PASSED
@@ -209,5 +233,5 @@ tests/test_vad.py::test_silencio_no_genera_eventos PASSED
 tests/test_vad.py::test_frase_completa PASSED
 tests/test_vad.py::test_ruido_corto_se_descarta PASSED
 tests/test_vad.py::test_dos_frases_separadas PASSED
-============================= 202 passed in 23.07s =============================
+============================= 225 passed in 25.97s =============================
 ```
