@@ -156,6 +156,7 @@ uv run --python .venv python -m server.medir          # latencia de STT, LLM y T
 uv run --python .venv python -m client.main              # micrófono predeterminado
 uv run --python .venv python -m client.main --listar     # ver micrófonos y altavoces
 uv run --python .venv python -m client.main --probar-audio   # tono en el altavoz y nivel del micrófono
+uv run --python .venv python -m client.main --pantalla on    # con la captura de pantalla encendida
 uv run --python .venv python -m client.main --wav x.wav  # enviar un WAV (también sirve en Linux)
 uv run --python .venv python -m client.main --wav x.wav --salida r.wav   # guardar su voz en un WAV
 
@@ -243,8 +244,49 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
   del servidor. Sin autenticarse en 5 s, la conexión se cierra (código 4401).
 - El WebSocket no va cifrado (`ws://`): dentro de la red local el audio viaja en claro. Si algún día
   sale de la LAN, hay que ponerle TLS (`wss://`) o una VPN.
-- **Visión apagada por defecto** (`VISION_HABILITADA=0`): el servidor ignora cualquier mensaje de
-  visión y nunca envía imágenes a la nube si no la activas tú.
+- **Pantalla apagada por defecto, con doble llave:** el PC no captura nada hasta que la enciendes
+  (`--pantalla on` o Ctrl+Alt+P) y el servidor ignora todo lo de pantalla con `VISION_HABILITADA=0`. Ninguna
+  captura se guarda en disco; ver [Pantalla](#pantalla-nix-ve-lo-que-haces).
+
+## Pantalla: Nix ve lo que haces
+
+La captura de pantalla está **apagada** cada vez que arrancas el cliente.
+
+**Encenderla:**
+```powershell
+uv run --python .venv python -m client.main --pantalla on   # arranca ya encendida
+uv run --python .venv python -m client.main                 # arranca apagada (igual que --pantalla off)
+```
+
+**Atajos de teclado** (funcionan aunque la ventana de Nix no esté al frente):
+
+| Atajo | Qué hace |
+|---|---|
+| **Ctrl+Alt+P** | Enciende la captura, o la **pausa al instante** si está encendida |
+| **Ctrl+Alt+M** | «Mira ahora»: manda **una** imagen de la pantalla para que Nix la describa (solo si está encendida) |
+
+**Cómo saber si está activa:** al encender sale `🔴 PANTALLA COMPARTIDA: Nix ve tu pantalla…` y el título de
+la ventana de PowerShell cambia a `🔴 Nix · VIENDO TU PANTALLA (Ctrl+Alt+P pausa)`; al pausar sale
+`⚫ Pantalla en pausa…`.
+
+**Qué se envía al servidor:**
+- **Normalmente, ninguna imagen.** El PC captura 1 vez por segundo (`PANTALLA_FPS`), en memoria, y calcula un
+  pHash. Si la pantalla cambió de verdad (`PANTALLA_UMBRAL`, y como mucho cada 3 s), manda solo **el título
+  de la ventana activa** (p. ej. «Ventana activa: Minecraft 1.21»).
+- **Una imagen reducida** (≤ 768 px de ancho, JPEG ≤ 200 KB) **solo si la pides**: Ctrl+Alt+M, o
+  `PANTALLA_ENVIAR_IMAGEN=1` para mandarla en cada cambio. El servidor la describe con el modelo de visión
+  (`VISION_MODELO`, Qwen en Groq: la imagen sí sale a Groq para eso), se queda solo con el texto y suelta la
+  imagen.
+- **Ventanas privadas:** si el título de la ventana activa contiene alguna palabra de `PANTALLA_EXCLUIR`
+  (contraseñas, gestores de claves, inicio de sesión, bancos…), no se captura nada y Nix solo sabe «ventana
+  privada». Ojo: solo se revisa la ventana activa; si pides una imagen, sale todo lo visible.
+- **Al pausar**, el servidor olvida lo que sabía de tu pantalla.
+- **Nada se guarda en disco**, ni en el PC ni en el servidor.
+
+**En el servidor** hace falta `VISION_HABILITADA=1` (y `systemctl --user restart nix`). Nix recibe las
+últimas descripciones (como mucho `VISION_MAX_TOKENS`, 120 tokens; caducan a los 10 min) junto a sus
+instrucciones, para comentarlas solo si viene al caso. En el log del servidor salen como `👁️ pantalla: …`.
+Sin `GROQ_API_KEY` (o con `VISION_PROVEEDOR=stub`) las imágenes se quedan en «pantalla sin descripción».
 
 ## Latencia
 

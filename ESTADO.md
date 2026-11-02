@@ -12,7 +12,7 @@
 | 2 | LLM + TTS en streaming, orquestador, barge-in, AEC | 🟡 código completo; falta la prueba en el PC |
 | 3 | Motor emocional | pendiente |
 | 4 | Memoria de tres niveles | pendiente |
-| 5 | Heartbeat y percepción | pendiente |
+| 5 | Heartbeat y percepción | 🟡 pantalla hecha (2026-11-02, apagada por defecto); falta el heartbeat |
 | 6 | Avatar en VTube Studio | pendiente |
 | 7 | Canales: Discord, Telegram, Twitch (cuenta `narchan_`) y Minecraft (cuenta `_Kirito690`) | pendiente |
 
@@ -170,3 +170,24 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
   - ajustar `STT_MIN_LOGPROB` si pide repetir demasiado o muy poco;
   - volver a encender el barge-in (`BARGE_IN=1`) cuando el eco quede bien;
   - `keyterm` para Deepgram (no se usa hoy).
+
+### 2026-11-02 — Nix ve la pantalla (commits locales, sin push)
+Kirito lo llamó «fase 2: ver la pantalla». En el plan es la parte de percepción de la fase 5.
+- **Cliente:**
+  - `client/screen_capture.py`: mss a 1 fps, 768 px, pHash; apagada al arrancar;
+  - `--pantalla on|off`, **Ctrl+Alt+P** (enciende / pausa al instante), **Ctrl+Alt+M** (manda una imagen);
+  - ventanas de contraseñas y bancos excluidas (`PANTALLA_EXCLUIR`); nada en disco;
+  - `client/indicador.py`: línea 🔴 y título de la ventana mientras está activa.
+- **Qué sale del PC:** normalmente solo el título de la ventana activa; la imagen reducida, solo si se pide.
+- **Servidor:**
+  - `server/vision.py`: describe las imágenes con `qwen/qwen3.8-27b` en Groq (acepta imágenes: ~0,6–0,9 s);
+    sin clave, «pantalla sin descripción»;
+  - resumen de pantalla de hasta 120 tokens en el prompt del LLM.
+  - En el `.env` de este servidor quedó `VISION_HABILITADA=1`; en el código y en `.env.example` sigue 0.
+- **Dependencias nuevas del cliente:** mss, pillow, pynput (`uv pip install -r requirements-client.txt`).
+- 202 pruebas pasan (`PRUEBAS.md`); decisiones en `CAMBIOS.md`.
+- **Pendiente:**
+  - probarlo en Windows (atajos con pynput, título de la ventana, mss con varios monitores: solo se captura el
+    principal);
+  - que Nix pida mirar cuando le dices «mira mi pantalla» (hoy hay que pulsar Ctrl+Alt+M);
+  - subir los commits a GitHub cuando Kirito lo apruebe.
