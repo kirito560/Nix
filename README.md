@@ -266,7 +266,7 @@ uv run --python .venv python -m client.main                 # arranca apagada (i
 | **Ctrl+Alt+M** | «Mira ahora»: manda **una** imagen de la pantalla para que Nix la describa (solo si está encendida) |
 
 **Cómo saber si está activa:** al encender sale `🔴 PANTALLA COMPARTIDA: Nix ve tu pantalla…` y el título de
-la ventana de PowerShell cambia a `🔴 Nix · VIENDO TU PANTALLA (Ctrl+Alt+P pausa)`; al pausar sale
+la ventana de PowerShell cambia a `Nix [EN VIVO] - VIENDO TU PANTALLA (Ctrl+Alt+P pausa)`; al pausar sale
 `⚫ Pantalla en pausa…`.
 
 **Qué se envía al servidor:**

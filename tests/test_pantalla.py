@@ -312,6 +312,24 @@ def test_indicador_visible():
     assert "🔴" in LINEA_PANTALLA_ACTIVA
 
 
+def test_el_titulo_dice_nix_y_es_ascii():
+    """En Windows el título salía como «Nx»: el emoji del título confundía a la consola. Ahora es ASCII puro."""
+    titulos = []
+    ind = Indicador(escribir=lambda _t: None, titulo=titulos.append)
+    ind.pantalla(True)
+    ind.camara(True)
+    ind.pantalla(False)
+    ind.camara(False)
+    assert titulos == [
+        "Nix [EN VIVO] - VIENDO TU PANTALLA (Ctrl+Alt+P pausa)",
+        "Nix [EN VIVO] - VIENDO TU PANTALLA (Ctrl+Alt+P pausa) - CAMARA ENCENDIDA (Ctrl+Alt+C apaga)",
+        "Nix [EN VIVO] - CAMARA ENCENDIDA (Ctrl+Alt+C apaga)",
+        "Nix - pantalla y camara apagadas",
+    ]
+    for t in titulos:
+        assert t.startswith("Nix ") and "Nx" not in t and t.isascii()
+
+
 # ------------------------------------------------------------------ servidor
 def jpeg_b64(img=None) -> str:
     return base64.b64encode(a_jpeg(reducir(img or escritorio(1)))).decode()

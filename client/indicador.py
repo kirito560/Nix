@@ -9,10 +9,13 @@ from __future__ import annotations
 import sys
 from typing import Callable
 
+# El título va solo en ASCII: la consola clásica de Windows maneja mal los emojis (son dos unidades UTF-16) y
+# los caracteres especiales en el título, y podía mostrar el nombre mal («Nx» en vez de «Nix»).
 TITULO_BASE = "Nix"
 TITULO_PANTALLA = "VIENDO TU PANTALLA (Ctrl+Alt+P pausa)"
-TITULO_CAMARA = "CÁMARA ENCENDIDA (Ctrl+Alt+C apaga)"
-TITULO_NADA = "pantalla y cámara apagadas"
+TITULO_CAMARA = "CAMARA ENCENDIDA (Ctrl+Alt+C apaga)"
+TITULO_NADA = "pantalla y camara apagadas"
+MARCA_ACTIVA = "[EN VIVO]"
 LINEA_PANTALLA_ACTIVA = "🔴 PANTALLA COMPARTIDA: Nix ve tu pantalla. Ctrl+Alt+P la pausa al instante."
 LINEA_PANTALLA_APAGADA = "⚫ Pantalla en pausa: Nix no ve nada. Ctrl+Alt+P la enciende."
 LINEA_CAMARA_ACTIVA = ("🔴 CÁMARA ENCENDIDA: Nix solo sabe si estás frente a ella (sí/no); ninguna imagen sale "
@@ -54,5 +57,5 @@ class Indicador:
         partes = [p for p, activa in ((TITULO_PANTALLA, self.pantalla_activa), (TITULO_CAMARA, self.camara_activa))
                   if activa]
         if not partes:
-            return f"{TITULO_BASE} · {TITULO_NADA}"
-        return "🔴 " + " · ".join([TITULO_BASE, *partes])
+            return f"{TITULO_BASE} - {TITULO_NADA}"
+        return f"{TITULO_BASE} {MARCA_ACTIVA} - " + " - ".join(partes)

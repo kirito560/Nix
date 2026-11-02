@@ -264,3 +264,18 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   largo plazo (fase 4); cuando llegue, la presencia no debe entrar en ella.
 - No hace falta encender nada en el servidor: si el cliente no manda presencia, no hay línea. A diferencia de la
   pantalla, no hay segunda llave, porque es un solo booleano.
+
+## 5. Título de la ventana («Nx» → «Nix»)
+
+- **En el código siempre decía «Nix».** El título vive en `client/indicador.py`, no en `screen_capture.py`, y
+  no había «Nx» en ningún archivo.
+- **Causa más probable:** el emoji 🔴 al inicio del título. Ocupa dos unidades UTF-16 y la consola clásica de
+  Windows (`SetConsoleTitleW` en conhost) lo maneja mal, comiéndose letras de al lado. No lo pude comprobar en
+  Windows.
+- **Corrección:** el título va **solo en ASCII**. Ejemplos:
+  - `Nix [EN VIVO] - VIENDO TU PANTALLA (Ctrl+Alt+P pausa)`;
+  - `Nix [EN VIVO] - ... - CAMARA ENCENDIDA (Ctrl+Alt+C apaga)`;
+  - `Nix - pantalla y camara apagadas`.
+
+  Una prueba exige que empiece por «Nix», que no contenga «Nx» y que sea ASCII. Las líneas impresas en la consola
+  conservan sus emojis, porque esas sí se veían bien.
