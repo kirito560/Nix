@@ -204,7 +204,7 @@ Auditoría de secretos del mismo día:
 
 | Dónde | Qué | Cuándo |
 |---|---|---|
-| `~/nix/.env` (permisos 600, fuera de git) | Tiene `NIX_TOKEN` y `GROQ_API_KEY` (la clave la puso Kirito). Valores que difieren de `.env.example`: `BARGE_IN=0` (era 1; Nix se interrumpía sola), `GROQ_MODELO_STT=whisper-large-v3` (era turbo; transcribe mejor) y `VISION_HABILITADA=1` (era 0; segunda llave de la pantalla) y `LLM_MAX_TOKENS=90` (era 300; respuestas cortas, 2026-11-02). Las variables nuevas (`STT_PROMPT`, `STT_MIN_LOGPROB`, `VISION_*`, `PANTALLA_*`, `AEC*`) no están: se usan sus valores por defecto. | 2026-10-29 a 11-02 |
+| `~/nix/.env` (permisos 600, fuera de git) | Tiene `NIX_TOKEN` y `GROQ_API_KEY` (la clave la puso Kirito). Valores que difieren de `.env.example`: `BARGE_IN=0` (era 1; Nix se interrumpía sola), `GROQ_MODELO_STT=whisper-large-v3` (era turbo; transcribe mejor) y `VISION_HABILITADA=1` (era 0; segunda llave de la pantalla) `LLM_MAX_TOKENS=90` (era 300; respuestas cortas), `VAD_SILENCIO_MS=300` (era 400) y `STT_ADELANTO_MS=150` (era 200; latencia, 2026-11-02). Las variables nuevas (`STT_PROMPT`, `STT_MIN_LOGPROB`, `VISION_*`, `PANTALLA_*`, `AEC*`) no están: se usan sus valores por defecto. | 2026-10-29 a 11-02 |
 | `~/.config/systemd/user/nix.service` | Copia de `despliegue/nix.service` (idéntica), habilitada (`systemctl --user enable --now nix`). | 2026-10-29 |
 | Servicio `nix` | Reiniciado varias veces para aplicar cambios del código y del `.env`; hoy queda activo con el código local más nuevo (aún sin push). | 2026-10-29 a 11-02 |
 | `~/nix/.venv` (fuera de git) | Paquetes de los `requirements`, más mss, pillow, pynput, python-xlib y six para correr las pruebas de pantalla. | 2026-11-02 |
@@ -269,3 +269,41 @@ del plan, sigue sin empezar.
 - Prueba real: el primer turno de una ráfaga chocó con el límite y lo respondió gpt-oss en 484 ms.
 - **Pendiente:** si los dos modelos llegan juntos al límite en charlas muy rápidas, queda la frase de error.
   Siguientes pasos posibles: acortar la ficha que se manda en cada turno, o la capa de pago de Groq.
+
+### 2026-11-02 — latencia (commits locales, sin push)
+Objetivo de Kirito: de fin de voz a primera palabra, menos de 500 ms (p50). **No se logró:** quedó en 1268 ms p50
+(antes 1495), y el p95 bajó de 2936 a 1551 ms. Medido con 24 turnos de voz sintética con pausas, contra el
+servicio real.
+
+- **Fin de turno 400 → 300 ms.** Con 250 se cortaban frases con pausas de ~300 ms. La transcripción adelantada pasó
+  a 150 ms.
+- **Primera frase** en la primera coma o a las 5 palabras.
+- **TTS:**
+  - confirmado que ya era streaming;
+  - ffmpeg de reserva (~35 ms menos por frase);
+  - caché de frases cortas, precargada con las fijas y 15 aperturas típicas.
+- 288 pruebas pasan.
+
+**Por qué no baja de ~500 ms.** Cada etapa es un servicio en la nube y van una tras otra; los suelos medidos son:
+
+| Etapa | Suelo medido |
+|---|---|
+| Esperar el silencio que cierra el turno | 300 ms (menos corta frases) |
+| Whisper en Groq | ~300–350 ms por frase, casi todo red y cola (turbo: 314 ms, no compensa). La transcripción adelantada esconde ~150 ms: quedan ~270 |
+| Qwen en Groq, primer token | ~330 ms con ~1.300 tokens de entrada |
+| Microsoft, primer audio de una frase nueva | ~270–450 ms (150 si ya la sintetizó; solo MP3) |
+
+Suma ≈ 1,2 s. Para acercarse a 500 ms habría que solapar etapas o cambiar de proveedor:
+- **Deepgram en streaming** (ya hay código, `STT_PROVEEDOR=deepgram`): el texto está casi listo al cerrar el
+  turno: −200 a −250 ms. Es de pago: ~$0.0048/min.
+- **TTS rápido de pago** (Cartesia, ElevenLabs Flash: ~100 ms al primer audio): −150 a −300 ms.
+- **Empezar el LLM con la transcripción adelantada** (especulativo), antes de cerrar el turno: −100 a −250 ms,
+  pero gasta peticiones de Groq que luego se tiran (y la cuenta gratuita ya llega a su límite).
+- **Fin de turno «inteligente»** (cerrar antes si la frase suena terminada): −100 ms sin cortar frases.
+
+Aun con todo eso, el mínimo realista ronda 600–700 ms. Para menos de 500 haría falta empezar a responder mientras
+todavía hablas, como los asistentes de voz comerciales.
+
+**Pendiente:**
+- con `BARGE_IN=0`, si empiezas a hablar justo antes de que Nix termine, esa frase se pierde sin aviso;
+- probar en el PC con voz real (las pausas reales pueden ser más largas que las de prueba).

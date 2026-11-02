@@ -526,3 +526,40 @@ total **p50 1495 / p95 2936 ms** (n=12):
     dentro del ruido.
   - La caché solo ayuda cuando la primera frase se repite: no se nota en 12 turnos recién arrancado, sí en una
     charla larga.
+
+
+## 4. Pruebas (`tests/test_fin_de_turno.py`, 16)
+
+- **Fin de turno:**
+  - 300 ms por defecto (config, `.env` y `DetectorVoz`), con la transcripción adelantada antes del cierre;
+  - el fin llega 300 ms (± 32) después de la voz, 100 ms antes que con 400;
+  - pausas de 150–250 ms no cortan la frase y una de 500 ms sí.
+- **Primera frase:**
+  - con 5 palabras si no hay coma, y entre 4 y 6;
+  - en la coma o en el punto si llegan antes;
+  - las demás solo por puntuación;
+  - no cuenta una palabra a medias;
+  - `palabras_primera` se puede configurar.
+- **TTS:**
+  - una frase corta repetida sale de la caché sin llamar a Microsoft;
+  - las largas o cortadas a medias no se guardan;
+  - la precarga llena la caché;
+  - se usa el ffmpeg de reserva, se repone otro y al cerrar no queda ninguno.
+- 288 pruebas pasan (`PRUEBAS.md`).
+
+## 5. Medición final
+
+24 turnos: el mismo WAV dos veces seguidas, sin reiniciar, para que la caché se llene como en una charla. Las 24
+frases llegaron enteras. Un turno lo respondió el respaldo por el límite de Groq. 3 de 24 primeras frases salieron
+de la caché, en 1–2 ms.
+
+```
+voz_fin→vad_fin          p50 321 / p95 322 ms (n=24)
+vad_fin→stt_final        p50 269 / p95 679 ms
+stt_final→llm_1er_token  p50 329 / p95 614 ms
+llm_1er_token→frase_1    p50  10 / p95  48 ms
+frase_1→tts_1er_audio    p50 272 / p95 505 ms
+tts_1er_audio→enviado    p50   1 / p95   1 ms
+total                    p50 1268 / p95 1551 ms   (antes 1495 / 2936, n=12)
+tras_vad                 p50 947 / p95 1230 ms   (antes 1083 / 2515)
+```

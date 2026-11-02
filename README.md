@@ -229,8 +229,15 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
   (`STT_PROMPT`: Nix, Minecraft, PvP, Roblox…). Se descartan textos vacíos o de un carácter. Si Whisper no
   está seguro (`avg_logprob` menor que `STT_MIN_LOGPROB`, por defecto -1,0), Nix dice «Perdón, no te
   entendí bien, ¿me lo repites?» en vez de responder a algo mal entendido.
-- **Transcripción adelantada:** cuando llevas `STT_ADELANTO_MS` (200 ms) callado, ya se empieza a transcribir;
-  si a los `VAD_SILENCIO_MS` (400 ms) la frase termina sin más voz, se usa ese resultado (~200 ms menos).
+- **Fin de turno:** el turno se cierra tras `VAD_SILENCIO_MS` (300 ms) de silencio. Con 250 se cortaban frases con
+  pausas de ~300 ms («Creo que… la pizza»).
+- **Transcripción adelantada:** cuando llevas `STT_ADELANTO_MS` (150 ms) callado, ya se empieza a transcribir;
+  si al cerrarse el turno no hubo más voz, se usa ese resultado.
+- **Primera frase de la voz:** sale en cuanto el LLM da un punto, una coma o 5 palabras; las siguientes, por
+  puntuación.
+- **Voz:** edge-tts en streaming (el MP3 entra a ffmpeg mientras llega). Un ffmpeg siempre ya arrancado (~35 ms
+  menos) y una caché en memoria de frases cortas (las frases fijas y 15 aperturas típicas se precargan al
+  arrancar): lo repetido suena al instante.
 - **Si Qwen llega a su límite de uso** (429: la cuenta gratuita de Groq admite ~5 turnos por minuto) o Groq no tiene
   capacidad (498/503), ese turno lo responde el modelo de respaldo (`LLM_MODELO_RESPALDO`, gpt-oss) sin que se
   note; el siguiente vuelve a Qwen. En el log: `journalctl --user -u nix | grep RESPALDO`.
@@ -376,12 +383,30 @@ acumulado con p50/p95:
   Es casi todo el tiempo; bajarlo reduce la latencia pero corta frases en las pausas.
 - `vad_fin→stt_final`: lo que tarda el proveedor STT en dar el texto final.
 - `stt_final→llm_1er_token`, `llm_1er_token→frase_1`: lo que tarda el LLM en empezar y en dar la primera frase.
-- `frase_1→tts_1er_audio`: lo que tarda el TTS en dar el primer audio (con edge-tts, unos 800 ms).
+- `frase_1→tts_1er_audio`: lo que tarda el TTS en dar el primer audio. Con edge-tts, 150 ms si Microsoft ya
+  sintetizó esa frase y 300–500 ms si es nueva; 1–2 ms si sale de la caché propia.
 - `tts_1er_audio→audio_enviado`: envío al cliente.
 - `total` cuenta desde que dejas de hablar; `tras_vad`, desde que el VAD cierra la frase.
 
 Para medir: arranca el servidor, habla (o envía un WAV) varias veces y mira la línea `acumulado`.
 Al detener el servidor (Ctrl+C) se imprime el resumen final.
+
+```bash
+journalctl --user -u nix -f | grep --line-buffered "⏱️"          # cada turno y el acumulado
+```
+
+**Medido el 2026-11-02** (24 turnos, voz sintética con pausas a media frase, servicio real):
+
+| Etapa | Antes (p50 / p95) | Ahora (p50 / p95) |
+|---|---|---|
+| fin de voz → cierre del turno | 421 / 422 ms | 321 / 322 ms |
+| → texto (Whisper en Groq) | 291 / 365 ms | 269 / 679 ms |
+| → primer token del LLM (Qwen en Groq) | 315 / 1708 ms | 329 / 614 ms |
+| → primera frase | 11 / 60 ms | 10 / 48 ms |
+| → primer audio (edge-tts) | 372 / 801 ms | 272 / 505 ms |
+| **total** | **1495 / 2936 ms** | **1268 / 1551 ms** |
+
+Groq varía ±150 ms de una medición a otra. Por qué no baja de ~1,2 s: ver `ESTADO.md`.
 
 ## Proveedores de voz a texto (STT)
 
