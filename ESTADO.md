@@ -90,7 +90,10 @@ Los modelos `llama-3.1-8b-instant` y `llama-3.3-70b-versatile` aparecen en la do
 1. ~~Clave de Groq~~ ✅ puesta en `~/nix/.env` (2026-10-29).
 2. ~~Firewall~~ ✅ comprobado: `8765/tcp ALLOW IN 192.168.1.0/24`.
    ⚠️ **Seguridad:** SSH (puerto 22) está abierto a cualquier dirección y acepta contraseñas (`passwordauthentication yes`). Kirito debe cambiar su contraseña (`passwd`) y, después, pasar a entrar solo con llave.
-3. **Probar el cliente en Windows** (guía en el README, «Cliente (Windows)»).
+3. **Probar el audio en Windows** (2026-11-02): el cliente ya se conecta desde el PC (192.168.1.64). Falta
+   `git pull` y `python -m client.main --probar-audio` para elegir micrófono y altavoz que funcionen (README,
+   «Audio del PC»). Los cambios de la limpieza **no se han subido a GitHub**: Kirito pidió no hacer push hasta
+   revisarlos.
 4. **Decidir la voz de pago:** ya no hace tanta falta (edge-tts quedó en ~190 ms con las conexiones listas); lo que más ganaría ahora es STT en streaming (Deepgram).
 5. Fase 7: credenciales de Discord, Telegram y Twitch (`narchan_`).
 
@@ -109,9 +112,12 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
 
 ## Siguiente paso
 
-1. Primera conversación real desde el PC con Windows, con audífonos (escuchar si Qwen convence o se cambia a `gpt-oss-120b`).
-2. Kirito decide si paga una voz más rápida (y STT en streaming) para acercarse a ~500 ms.
-3. Con el PC: probar el AEC con altavoces (mirar `🎧 eco atenuado`; si es bajo, ajustar `AEC_RETRASO_MS`). Con eso se cierra la fase 2.
+1. Subir a GitHub los commits locales de la limpieza (cuando Kirito lo apruebe), hacer `git pull` en el PC y
+   correr `--probar-audio`. Con micrófono y altavoz que funcionen, volver a encender el barge-in
+   (`BARGE_IN=1` en el `.env` del servidor) y ver si Nix ya no se interrumpe sola.
+2. Escuchar si Qwen convence o se cambia a `gpt-oss-120b`, y si `whisper-large-v3` entiende mejor que turbo.
+3. Kirito decide si paga una voz más rápida (y STT en streaming) para acercarse a ~500 ms.
+4. Con el PC: probar el AEC con altavoces (mirar `🎧 eco atenuado`; si es bajo, ajustar `AEC_RETRASO_MS`). Con eso se cierra la fase 2.
 
 ## Historial
 
@@ -130,3 +136,16 @@ Costo del LLM en Groq, suponiendo ~1500 tokens de entrada por turno (ficha + his
   tarjeta 280 ms): llegan frases y Nix responde, pero el barge-in la cortaba en cada turno, a los 1-3 s de
   empezar a hablar (su propia voz volvía al micrófono). Para probar: `BARGE_IN=0` y STT `whisper-large-v3`
   (más preciso que turbo; había errores como «No, Torin»). Solo en .env del servidor.
+
+### 2026-11-02 — limpieza y audio del cliente (commits locales, sin push)
+- Auditoría: dependencias todas en uso; quitado código muerto en pruebas; `uv.lock` (vacío) movido a `_revisar/`.
+  Detalle y decisiones en `CAMBIOS.md`.
+- Audio del cliente (`client/audio_io.py`, `client/main.py`):
+  - cada dispositivo se abre con sus canales y frecuencia reales y se convierte a mono 16 kHz;
+  - si el dúplex falla, micrófono y altavoz se abren por separado;
+  - un dispositivo que no abre ya no tumba el programa: avisa y reintenta cada 5 s;
+  - aviso si micrófono y altavoz son de APIs distintas;
+  - nuevos `--probar-audio` (y `--todos`); `--listar` dice qué usará Nix.
+- Búfer de reproducción sin recortes por callback.
+- 127 pruebas pasan (`PRUEBAS.md`), 19 nuevas con un sounddevice falso. **Falta probarlo con la tarjeta real del PC.**
+- En el `.env` del servidor siguen `BARGE_IN=0` y `GROQ_MODELO_STT=whisper-large-v3`, de la prueba anterior.

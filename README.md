@@ -76,10 +76,53 @@ En **PowerShell** (no hace falta ser administrador):
    NIX_SERVIDOR=ws://192.168.1.50:8765
    ```
    El cliente no necesita ninguna otra clave: Groq y lo demás viven solo en el servidor.
-4. Comprueba los dispositivos de audio (opcional): `uv run --python .venv python -m client.main --listar`.
-   Si no quieres los predeterminados, añade al `.env` `MIC_DISPOSITIVO=<número>` y `ALTAVOZ_DISPOSITIVO=<número>`.
+4. Elige el micrófono y el altavoz y pruébalos (ver [Audio del PC](#audio-del-pc)).
+5. Arranca el cliente y déjalo abierto:
+   ```powershell
+   uv run --python .venv python -m client.main
+   ```
 
 Para actualizar más adelante: `git pull` y repetir el `uv pip install`.
+
+### Audio del PC
+
+Nix usa **dos dispositivos** del PC:
+
+| Dispositivo | Variable del `.env` | Para qué |
+|---|---|---|
+| **Micrófono** (entrada) | `MIC_DISPOSITIVO` | Lo que dices. Se manda al servidor en mono a 16 kHz. |
+| **Altavoz** (salida) | `ALTAVOZ_DISPOSITIVO` | Donde suena la voz de Nix: audífonos o bocinas. |
+
+Si una variable está vacía o no existe, se usa el predeterminado de Windows. Cada uno se abre con sus canales y
+su frecuencia reales; el cliente convierte el audio solo.
+
+1. **Ver la lista** (el número de la izquierda es el que va en el `.env`):
+   ```powershell
+   uv run --python .venv python -m client.main --listar
+   ```
+   La lista tiene el mismo dispositivo varias veces, una por API: MME, Windows DirectSound, Windows WASAPI y
+   Windows WDM-KS. Al final dice qué micrófono y qué altavoz usará Nix.
+2. **Elegir** con `notepad .env`, por ejemplo:
+   ```
+   MIC_DISPOSITIVO=14
+   ALTAVOZ_DISPOSITIVO=17
+   ```
+   Escoge micrófono y altavoz **de la misma API** (los dos DirectSound, o los dos MME…). Solo así se abren
+   juntos y hay **cancelación de eco**, que evita que Nix se oiga a sí misma. Con audífonos no hace falta; con
+   bocinas, sí. Evita «CABLE Input/Output (VB-Audio)»: son cables virtuales y no suenan.
+3. **Probar:**
+   ```powershell
+   uv run --python .venv python -m client.main --probar-audio
+   ```
+   Toca un tono de 1 s en el altavoz, graba 2 s del micrófono (habla) y dice para cada uno «✅ funciona» o
+   «❌ falló» con el motivo. Si el micrófono abre pero llega «casi en silencio», es el equivocado o está
+   silenciado en Windows. También dice si los dos abren juntos (cancelación de eco).
+   Con `--probar-audio --todos` prueba **cada** dispositivo de la lista (tarda y suena varias veces) y al final
+   dice cuáles funcionaron.
+
+Si el cliente no puede abrir los dos juntos, avisa en la ventana y sigue con micrófono y altavoz por separado,
+sin cancelación de eco. Si no abre el micrófono o el altavoz, lo dice y lo reintenta cada 5 s: el programa no
+se cierra.
 
 ## Configuración (.env)
 
@@ -111,7 +154,8 @@ uv run --python .venv python -m server.medir          # latencia de STT, LLM y T
 
 # Cliente (Windows)
 uv run --python .venv python -m client.main              # micrófono predeterminado
-uv run --python .venv python -m client.main --listar     # ver micrófonos
+uv run --python .venv python -m client.main --listar     # ver micrófonos y altavoces
+uv run --python .venv python -m client.main --probar-audio   # tono en el altavoz y nivel del micrófono
 uv run --python .venv python -m client.main --wav x.wav  # enviar un WAV (también sirve en Linux)
 uv run --python .venv python -m client.main --wav x.wav --salida r.wav   # guardar su voz en un WAV
 
