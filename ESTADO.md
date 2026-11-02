@@ -191,3 +191,30 @@ Kirito lo llamó «fase 2: ver la pantalla». En el plan es la parte de percepci
     principal);
   - que Nix pida mirar cuando le dices «mira mi pantalla» (hoy hay que pulsar Ctrl+Alt+M);
   - subir los commits a GitHub cuando Kirito lo apruebe.
+
+## Cambios en el servidor fuera del repositorio (registro, 2026-11-02)
+
+Auditoría de secretos del mismo día:
+- **Git:** `git ls-files` solo tiene `.env.example`, con las claves vacías. `.env` nunca entró en ningún commit
+  (está en `.gitignore`).
+- **Valores reales:** el `NIX_TOKEN` y la `GROQ_API_KEY` reales aparecen **0 veces** en `git log --all -p`.
+- **Otros secretos:** ninguna llave privada ni clave con prefijo conocido (`gsk_`, `sk-`, `ghp_`), y la contraseña
+  del servidor no aparece. Las 326 líneas que da `grep -i "api_key\|token\|password"` son nombres de
+  variables, código y valores falsos de las pruebas (`"x" * 40`, `"CLAVE"`, `token-de-prueba-…`).
+
+| Dónde | Qué | Cuándo |
+|---|---|---|
+| `~/nix/.env` (permisos 600, fuera de git) | Tiene `NIX_TOKEN` y `GROQ_API_KEY` (la clave la puso Kirito). Valores que difieren de `.env.example`: `BARGE_IN=0` (era 1; Nix se interrumpía sola), `GROQ_MODELO_STT=whisper-large-v3` (era turbo; transcribe mejor) y `VISION_HABILITADA=1` (era 0; segunda llave de la pantalla). Las variables nuevas (`STT_PROMPT`, `STT_MIN_LOGPROB`, `VISION_*`, `PANTALLA_*`, `AEC*`) no están: se usan sus valores por defecto. | 2026-10-29 a 11-02 |
+| `~/.config/systemd/user/nix.service` | Copia de `despliegue/nix.service` (idéntica), habilitada (`systemctl --user enable --now nix`). | 2026-10-29 |
+| Servicio `nix` | Reiniciado varias veces para aplicar cambios del código y del `.env`; hoy queda activo con el código local más nuevo (aún sin push). | 2026-10-29 a 11-02 |
+| `~/nix/.venv` (fuera de git) | Paquetes de los `requirements`, más mss, pillow, pynput, python-xlib y six para correr las pruebas de pantalla. | 2026-11-02 |
+| `~/nix/.git/config` | `core.sshCommand` para usar la llave de despliegue `~/.ssh/nix_deploy` al hacer push (la llave ya existía). | 2026-10-28 |
+| GitHub | Push de los commits hasta `d538c4c` (antes de la regla de no hacer push). Los 15 commits posteriores siguen solo en local. | hasta 2026-11-02 |
+| `sudo` | Solo lecturas: `ufw status verbose` y `sshd -T`. No se cambió el firewall (la regla `8765/tcp ALLOW 192.168.1.0/24` ya existía), ni SSH, ni se instaló nada con apt (ffmpeg ya estaba). | 2026-10-29 |
+| Cachés y temporales | Borradas las cachés locales `__pycache__` y `.pytest_cache` (git ya las ignoraba). `uvx vulture` quedó en la caché de uv (`~/.cache/uv`). Imagen de prueba en la carpeta temporal de la sesión (`/tmp/claude-1000/…/scratchpad/prueba.jpg`). | 2026-11-02 |
+| Groq (internet) | Llamadas de prueba con la clave: lista de modelos, una transcripción y dos descripciones de una imagen de prueba (patrón de colores, sin datos). | 2026-11-02 |
+
+**No se tocó:** Minecraft, DuckDNS, `/datos/respaldos` ni el archivo de Narwell. `/datos/nix` y
+`/datos/modelos/silero_vad.onnx` son del 2026-10-28 (fase 1). Linger ya estaba activo.
+
+⚠️ Sigue pendiente de Kirito cambiar la contraseña del servidor (`passwd`): la de `sudo` quedó escrita en el chat.
