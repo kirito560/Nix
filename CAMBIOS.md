@@ -170,3 +170,11 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - **Protocolo:** `vision.delta` lleva `activa` (por defecto `true`) y `vision.frame` lleva `caption`. Los dos con
   límites de tamaño.
 - Dependencias nuevas del cliente: `mss`, `pillow`, `pynput`.
+
+## 2. Indicador (`client/indicador.py`)
+
+- **Al encender o pausar**, sale una línea bien visible: «🔴 PANTALLA COMPARTIDA: Nix ve tu pantalla. Ctrl+Alt+P
+  la pausa al instante» / «⚫ Pantalla en pausa…». Al arrancar sale la de pausa, para que quede claro el estado.
+- **Mientras está activa**, el título de la ventana de PowerShell (visible también en la barra de tareas) es
+  «🔴 Nix · VIENDO TU PANTALLA (Ctrl+Alt+P pausa)».
+  - *Duda:* el cliente es de consola, sin interfaz gráfica, así que el «ícono» es el título de la ventana.

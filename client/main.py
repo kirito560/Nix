@@ -23,6 +23,7 @@ from websockets.exceptions import ConnectionClosed
 
 from client.audio_io import (Altavoz, ArchivoWav, AudioDuplex, ErrorAudio, GrabadorWav, info_dispositivo,
                              probar_audio)
+from client.indicador import IndicadorPantalla
 from client.screen_capture import EXCLUIDAS_POR_DEFECTO, Atajos, CapturaPantalla
 from client.ws_client import ErrorAutenticacion, ejecutar
 from shared.auth import validar_token
@@ -86,7 +87,7 @@ def main(argv: list[str] | None = None) -> None:
         retraso = e.texto("AEC_RETRASO_MS")
         fuente = salida = AudioDuplex(_dispositivo(args.dispositivo), _dispositivo(args.altavoz),
                                       aec=not args.sin_aec, retraso_ms=float(retraso) if retraso else None)
-        print("🎤 Habla cuando quieras (Ctrl+C para salir).")
+        print("🎤 Habla cuando quieras (Ctrl+C para salir; Ctrl+Alt+P enciende o pausa la pantalla).")
     al_audio = lambda _turno, _pts, sr, pcm: salida.reproducir(sr, pcm)  # noqa: E731
     try:
         if args.wav:
@@ -121,7 +122,8 @@ def siguiente_espera(espera: float) -> float:
 def crear_captura(e: Entorno) -> CapturaPantalla:
     excluidas = e.lista("PANTALLA_EXCLUIR", "") or EXCLUIDAS_POR_DEFECTO
     return CapturaPantalla(fps=e.decimal("PANTALLA_FPS", 1.0), umbral=int(e.decimal("PANTALLA_UMBRAL", 10)),
-                           enviar_imagen=e.booleano("PANTALLA_ENVIAR_IMAGEN", False), excluidas=excluidas)
+                           enviar_imagen=e.booleano("PANTALLA_ENVIAR_IMAGEN", False), excluidas=excluidas,
+                           al_cambiar_estado=IndicadorPantalla())
 
 
 async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio, captura: CapturaPantalla,
@@ -131,6 +133,8 @@ async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio,
     atajos.iniciar(asyncio.get_running_loop())
     if encender:
         captura.activar()
+    elif captura.al_cambiar_estado is not None:
+        captura.al_cambiar_estado(False)            # deja claro desde el inicio que está apagada
     tarea = asyncio.create_task(captura.correr(), name="pantalla")
     try:
         await conversar_siempre(url, token, fuente, salida, al_audio, al_conectar=captura.conectar)
