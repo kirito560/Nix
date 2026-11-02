@@ -79,9 +79,11 @@ class Turno:
 
 class Orquestador:
     def __init__(self, personaje: Personaje, llm: ProveedorLLM, tts: ProveedorTTS,
-                 enviar: Callable[[object], Awaitable[None]], registro: Registro, historial: Historial):
+                 enviar: Callable[[object], Awaitable[None]], registro: Registro, historial: Historial,
+                 contexto: Optional[Callable[[], str]] = None):
         self.personaje, self.llm, self.tts, self.enviar = personaje, llm, tts, enviar
         self.registro, self.historial = registro, historial
+        self.contexto = contexto                 # p. ej. el resumen de la pantalla del usuario (o "")
         self.sistema = prompt_sistema(personaje)
         self.turno: Optional[Turno] = None
         self.fin_reproduccion = 0.0
@@ -132,7 +134,7 @@ class Orquestador:
         if fija is not None:
             pensar = self._frase_fija(fija, frases)
         else:
-            pensar = self._pensar(turno, self.historial.para_llm(self.sistema, texto), frases)
+            pensar = self._pensar(turno, self.historial.para_llm(self._sistema(), texto), frases)
         tareas = [asyncio.create_task(pensar, name="pensar"),
                   asyncio.create_task(self._sintetizar(turno, frases, audios), name="sintetizar")]
         try:
@@ -172,6 +174,10 @@ class Orquestador:
                 await frases.put(FRASE_SIN_CEREBRO)
         finally:
             await frases.put(None)
+
+    def _sistema(self) -> str:
+        extra = self.contexto() if self.contexto is not None else ""
+        return f"{self.sistema}\n\n{extra}" if extra else self.sistema
 
     @staticmethod
     async def _frase_fija(frase: str, frases: asyncio.Queue) -> None:

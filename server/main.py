@@ -20,6 +20,7 @@ from server.pipeline.llm import crear_llm
 from server.pipeline.stt import crear_stt
 from server.pipeline.tts import crear_tts
 from server.pipeline.vad import DetectorVoz, crear_puntuador
+from server.vision import ResumenPantalla, Vista, crear_vision
 from shared.config_base import cargar_env
 
 log = logging.getLogger("nix")
@@ -38,11 +39,17 @@ async def principal() -> None:
              f" ({getattr(tts, 'voz', '')})" if tts.nombre != "stub" else "")
     log.info("✋ Barge-in: %s", f"sí (mínimo {cfg.barge_min_voz_ms:.0f} ms de voz)" if cfg.barge_in else "no")
     historial = Historial(cfg.historial_turnos)
+    vista = Vista(crear_vision(cfg), ResumenPantalla(cfg.vision_max_tokens)) if cfg.vision_habilitada else None
+    if vista is not None:
+        log.info("👁️ Visión: %s (%s), resumen de pantalla de hasta %d tokens", vista.proveedor.nombre,
+                 cfg.vision_modelo if vista.proveedor.nombre != "stub" else "pantalla sin descripción",
+                 cfg.vision_max_tokens)
 
     def crear_escucha(enviar):
         detector = DetectorVoz(crear_puntuador(cfg.silero_onnx), umbral=cfg.vad_umbral,
                                silencio_ms=cfg.vad_silencio_ms, min_voz_ms=cfg.vad_min_voz_ms)
-        orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, historial)
+        orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, historial,
+                                  contexto=vista.resumen.para_llm if vista is not None else None)
         return Escucha(detector, stt, orquestador, cfg.barge_in, cfg.barge_min_voz_ms, cfg.stt_adelanto_ms)
 
     async def preparar() -> None:
@@ -51,7 +58,7 @@ async def principal() -> None:
         if cfg.groq_api_key:
             await groq_http.mantener_viva(cfg.groq_api_key)
 
-    gateway = Gateway(cfg, crear_escucha, personaje.nombre, al_conectar=preparar)
+    gateway = Gateway(cfg, crear_escucha, personaje.nombre, al_conectar=preparar, vista=vista)
     calentador = asyncio.create_task(mantener_listo(cfg, gateway, tts), name="mantener-listo")
     parar = asyncio.Event()
     for senal in (signal.SIGINT, signal.SIGTERM):
@@ -61,6 +68,8 @@ async def principal() -> None:
                  ", ".join(map(str, cfg.redes_permitidas)))
         await parar.wait()
     calentador.cancel()
+    if vista is not None:
+        await vista.cerrar()
     await tts.cerrar()
     log.info("👋 Servidor detenido. Latencias: %s", gateway.registro.resumen() or "sin turnos")
 

@@ -73,9 +73,10 @@ class MedidorNivel:
 
 class Gateway:
     def __init__(self, cfg: ConfigServidor, crear_escucha: Callable[[Callable], Escucha], nombre_personaje: str,
-                 al_conectar: Optional[Callable[[], Awaitable[None]]] = None):
+                 al_conectar: Optional[Callable[[], Awaitable[None]]] = None, vista=None):
         self.cfg, self.crear_escucha, self.nombre_personaje = cfg, crear_escucha, nombre_personaje
         self.al_conectar = al_conectar
+        self.vista = vista                       # server.vision.Vista: recibe lo que el cliente ve de la pantalla
         self.registro = Registro()
         self.actual: ServerConnection | None = None
 
@@ -152,6 +153,8 @@ class Gateway:
             return
         if isinstance(msg, (VisionDelta, VisionFrame)) and not self.cfg.vision_habilitada:
             log.debug("visión apagada (VISION_HABILITADA=0); ignoro %s", msg.type)
+        elif isinstance(msg, (VisionDelta, VisionFrame)) and self.vista is not None:
+            self.vista.recibir(msg)
         elif isinstance(msg, (VisionDelta, VisionFrame, UserState, PlaybackAck)):
             log.debug("recibido %s (se usará en fases posteriores)", msg.type)
         else:

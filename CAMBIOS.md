@@ -178,3 +178,24 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
 - **Mientras está activa**, el título de la ventana de PowerShell (visible también en la barra de tareas) es
   «🔴 Nix · VIENDO TU PANTALLA (Ctrl+Alt+P pausa)».
   - *Duda:* el cliente es de consola, sin interfaz gráfica, así que el «ícono» es el título de la ventana.
+
+## 3. Servidor (`server/vision.py`, gateway, orquestador, config, main)
+
+- **Modelo de visión:** `qwen/qwen3.8-27b`, el mismo que ya usa Nix para conversar. Lo probé con tu clave: acepta
+  imágenes y describe en ~0,6–0,9 s, con unos 800 tokens por captura de 768 px. En tu cuenta de Groq no hay otros
+  modelos con visión (los Llama 4 no aparecen) y `gpt-oss` no acepta imágenes. Se cambia con `VISION_MODELO`.
+- **Interfaz `ProveedorVision`:**
+  - `VisionGroq`, con instrucción de no copiar datos personales, contraseñas, cuentas ni mensajes;
+  - `VisionStub`, sin clave o con `VISION_PROVEEDOR=stub`, que devuelve «pantalla sin descripción».
+- **`Vista`:**
+  - `vision.delta` con descripción: actualiza el resumen;
+  - `activa=false`: lo borra;
+  - `vision.frame`: describe la imagen, como mucho una a la vez, quedándose con la última si llegan varias.
+    La imagen solo vive en memoria mientras se describe, y se rechaza si pasa de 300 KB.
+- **`ResumenPantalla`:**
+  - guarda las 3 últimas descripciones, con su antigüedad, y caducan a los 10 min;
+  - el texto para el LLM nunca pasa de `VISION_MAX_TOKENS` (120 por defecto, a ≈ 4 caracteres por token);
+  - se añade al final del prompt de sistema en cada turno, con la indicación de usarlo solo si viene al caso.
+- **Doble llave:** el servidor sigue ignorando todo lo de pantalla si `VISION_HABILITADA=0`. En el `.env` de este
+  servidor lo puse en **1** para que funcione cuando enciendas la captura en el PC. En el código y en
+  `.env.example`, el valor por defecto sigue siendo 0.

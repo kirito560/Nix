@@ -57,6 +57,9 @@ class ConfigServidor:
     barge_min_voz_ms: float = 400.0
     # Percepción: apagada por defecto; nunca se envían imágenes a la nube sin activarla a mano.
     vision_habilitada: bool = False
+    vision_proveedor: str = "auto"            # auto | groq | stub
+    vision_modelo: str = "qwen/qwen3.8-27b"   # acepta imágenes (comprobado el 2026-11-02)
+    vision_max_tokens: int = 120              # tope del resumen de pantalla en el prompt del LLM
 
     @classmethod
     def desde_entorno(cls, fuente: Optional[Mapping[str, str]] = None) -> "ConfigServidor":
@@ -98,6 +101,9 @@ class ConfigServidor:
             barge_in=e.booleano("BARGE_IN", True),
             barge_min_voz_ms=e.decimal("BARGE_MIN_VOZ_MS", 400.0),
             vision_habilitada=e.booleano("VISION_HABILITADA", False),
+            vision_proveedor=e.texto("VISION_PROVEEDOR", "auto").lower(),
+            vision_modelo=e.texto("VISION_MODELO", "qwen/qwen3.8-27b"),
+            vision_max_tokens=int(e.decimal("VISION_MAX_TOKENS", 120)),
         )
 
     def ip_permitida(self, ip: str) -> bool:
