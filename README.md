@@ -157,6 +157,7 @@ uv run --python .venv python -m client.main              # micrófono predetermi
 uv run --python .venv python -m client.main --listar     # ver micrófonos y altavoces
 uv run --python .venv python -m client.main --probar-audio   # tono en el altavoz y nivel del micrófono
 uv run --python .venv python -m client.main --pantalla on    # con la captura de pantalla encendida
+uv run --python .venv python -m client.main --camara on      # con la presencia por cámara encendida
 uv run --python .venv python -m client.main --wav x.wav  # enviar un WAV (también sirve en Linux)
 uv run --python .venv python -m client.main --wav x.wav --salida r.wav   # guardar su voz en un WAV
 
@@ -247,6 +248,41 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
 - **Pantalla apagada por defecto, con doble llave:** el PC no captura nada hasta que la enciendes
   (`--pantalla on` o Ctrl+Alt+P) y el servidor ignora todo lo de pantalla con `VISION_HABILITADA=0`. Ninguna
   captura se guarda en disco; ver [Pantalla](#pantalla-nix-ve-lo-que-haces).
+
+## Qué se captura y qué sale del PC
+
+| Sensor | Encendido al arrancar | Cómo se enciende / apaga | Qué se captura en el PC | Qué sale del PC hacia el servidor | ¿Se guarda en disco? |
+|---|---|---|---|---|---|
+| **Micrófono** | Sí (es la conversación) | Cerrando el cliente (Ctrl+C) | Audio, en memoria | Audio PCM 16 kHz, mientras el cliente está abierto (el servidor lo manda a Groq para transcribirlo) | No |
+| **Pantalla** | **No** | `--pantalla on` · **Ctrl+Alt+P** enciende o pausa al instante | 1 captura por segundo, reducida a 768 px, en memoria | Normalmente **solo el título de la ventana activa** cuando la pantalla cambia. Una imagen reducida **solo si la pides** (Ctrl+Alt+M o `PANTALLA_ENVIAR_IMAGEN=1`); el servidor la manda a Groq para describirla y la suelta | No |
+| **Cámara** | **No** | Solo `--camara on` · **Ctrl+Alt+C** la apaga al instante | 2 frames por segundo a 320×240, en memoria; cada uno se suelta después de buscar una cara | **Solo un sí/no** («hay alguien frente a la cámara»), y solo cuando cambia. **Nunca** frames ni imágenes | No |
+
+- **El título de la ventana de PowerShell** dice siempre qué está encendido, por ejemplo
+  `Nix [EN VIVO] - VIENDO TU PANTALLA (Ctrl+Alt+P pausa) - CAMARA ENCENDIDA (Ctrl+Alt+C apaga)`, o
+  `Nix - pantalla y camara apagadas`. Cada vez que algo se enciende o se apaga sale además una línea 🔴 / ⚫.
+- **En el servidor**, la pantalla y la presencia solo se usan como contexto para el LLM. La presencia se olvida al
+  desconectarse el PC y no entra en el historial ni en ninguna memoria.
+
+## Cámara: Nix sabe si estás ahí
+
+La cámara está **apagada** cada vez que arrancas el cliente y solo se enciende con `--camara on`:
+
+```powershell
+uv run --python .venv python -m client.main --camara on
+uv run --python .venv python -m client.main --pantalla on --camara on   # las dos
+```
+
+- Busca una cara (clasificador Haar de OpenCV) 2 veces por segundo, a 320×240.
+- Al servidor solo le dice **sí o no**, y solo cuando cambia:
+  - «sí» después de 2 frames seguidos con cara;
+  - «no» después de 4 s sin ninguna, para no cambiar cada vez que miras a un lado.
+- **Ctrl+Alt+C** la apaga al instante y suelta la cámara (se apaga su luz). Para volver a encenderla, reinicia el
+  cliente con `--camara on`.
+- Si no hay cámara, está ocupada (Zoom, Discord, OBS…) o falta OpenCV, avisa en la ventana
+  («📷 la cámara queda apagada: …») y todo lo demás sigue funcionando. Con varias cámaras, elige con
+  `CAMARA_INDICE` (0 = la primera).
+- En el servidor, Nix recibe en sus instrucciones «el usuario está frente a la cámara» o «no está…». En el log del
+  servidor sale como `📷 presencia: …`.
 
 ## Pantalla: Nix ve lo que haces
 

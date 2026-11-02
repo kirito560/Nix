@@ -12,7 +12,7 @@
 | 2 | LLM + TTS en streaming, orquestador, barge-in, AEC | 🟡 código completo; falta la prueba en el PC |
 | 3 | Motor emocional | pendiente |
 | 4 | Memoria de tres niveles | pendiente |
-| 5 | Heartbeat y percepción | 🟡 pantalla hecha (2026-11-02, apagada por defecto); falta el heartbeat |
+| 5 | Heartbeat y percepción | 🟡 pantalla y presencia por cámara hechas (2026-11-02, apagadas por defecto); falta el heartbeat |
 | 6 | Avatar en VTube Studio | pendiente |
 | 7 | Canales: Discord, Telegram, Twitch (cuenta `narchan_`) y Minecraft (cuenta `_Kirito690`) | pendiente |
 
@@ -218,3 +218,24 @@ Auditoría de secretos del mismo día:
 `/datos/modelos/silero_vad.onnx` son del 2026-10-28 (fase 1). Linger ya estaba activo.
 
 ⚠️ Sigue pendiente de Kirito cambiar la contraseña del servidor (`passwd`): la de `sudo` quedó escrita en el chat.
+
+### 2026-11-02 — presencia por cámara (commits locales, sin push)
+Kirito la llamó «fase 3: presencia por cámara». En el plan es percepción (fase 5). El motor emocional, la fase 3
+del plan, sigue sin empezar.
+- **Cliente:**
+  - `client/camara.py`: OpenCV a 320×240 y 2 fps, cara sí/no con Haar;
+  - apagada al iniciar, solo `--camara on`, **Ctrl+Alt+C** la apaga al instante;
+  - sin cámara o sin OpenCV, avisa y queda apagada;
+  - ningún frame se guarda ni sale del PC.
+- **Protocolo:** `presencia.update {ts, presente, activa}`, solo cuando cambia.
+- **Servidor:** `server/sesion.py` guarda la presencia mientras dura la conexión y solo la usa como una línea del
+  prompt del LLM. No va al historial ni a disco.
+- **Título de la ventana:** ahora es ASCII (`Nix [EN VIVO] - …`). En Windows salía «Nx», casi seguro por el emoji
+  🔴 en el título.
+- **OpenCV:** fijado a `opencv-python-headless` 4.14, porque OpenCV 5 ya no trae el clasificador Haar.
+- 225 pruebas pasan (`PRUEBAS.md`); decisiones en `CAMBIOS.md`.
+- **Pendiente:**
+  - probar en Windows: la cámara real, que el Haar detecte bien con la luz del cuarto, y que el título ya diga «Nix»;
+  - ajustar los umbrales (2 frames / 4 s) si cambia demasiado o muy lento;
+  - con la memoria de largo plazo (fase 4), dejar la presencia fuera;
+  - subir los commits cuando Kirito lo apruebe.
