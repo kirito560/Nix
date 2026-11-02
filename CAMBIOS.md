@@ -408,3 +408,18 @@ Decisiones tomadas por mi cuenta cuando había dudas (elegí siempre la opción 
   - el pedido largo quedó en 2 oraciones;
   - **dos turnos fallaron con 429:** la cuenta gratuita de Groq permite 7.000 tokens de entrada por minuto con
     Qwen, y cada turno manda ~1.300 (ficha + historial). Queda pendiente (ver ESTADO.md).
+
+## 8. Repositorio: notas sobre contraseñas
+
+- **Quitada de `ESTADO.md`** la nota de seguridad que pediste quitar. Nunca incluyó ningún dato secreto.
+- **También en `ESTADO.md`:**
+  - la recomendación de SSH quedó neutral («acepta conexiones desde cualquier dirección; recomendado entrar solo
+    con llave»), sin hablar de cambiar contraseñas;
+  - la auditoría y el registro de cambios ya no mencionan la contraseña del servidor ni `sudo`; dicen «permisos de
+    administrador» y «solo lecturas».
+- **Se quedan, porque son código, comandos o la función de pantalla:**
+  - `sudo ufw …` y `sudo apt install ffmpeg` en el README y en `requirements-server.txt`;
+  - la lista `PANTALLA_EXCLUIR` («contraseña», «password»…);
+  - las descripciones de que no se capturan ventanas de contraseñas.
+- **Ojo:** el texto viejo sigue en el historial de git (commit `d99378b`, ya subido a GitHub). Borrarlo de ahí
+  obligaría a reescribir el historial y forzar el push; no lo hice.

@@ -89,7 +89,7 @@ Los modelos `llama-3.1-8b-instant` y `llama-3.3-70b-versatile` aparecen en la do
 
 1. ~~Clave de Groq~~ ✅ puesta en `~/nix/.env` (2026-10-29).
 2. ~~Firewall~~ ✅ comprobado: `8765/tcp ALLOW IN 192.168.1.0/24`.
-   ⚠️ **Seguridad:** SSH (puerto 22) está abierto a cualquier dirección y acepta contraseñas (`passwordauthentication yes`). Kirito debe cambiar su contraseña (`passwd`) y, después, pasar a entrar solo con llave.
+   ⚠️ **Seguridad:** SSH (puerto 22) acepta conexiones desde cualquier dirección. Recomendado: entrar solo con llave.
 3. **Probar el audio en Windows** (2026-11-02): el cliente ya se conecta desde el PC (192.168.1.64). Falta
    `git pull` y `python -m client.main --probar-audio` para elegir micrófono y altavoz que funcionen (README,
    «Audio del PC»). Los cambios de la limpieza **no se han subido a GitHub**: Kirito pidió no hacer push hasta
@@ -198,8 +198,8 @@ Auditoría de secretos del mismo día:
 - **Git:** `git ls-files` solo tiene `.env.example`, con las claves vacías. `.env` nunca entró en ningún commit
   (está en `.gitignore`).
 - **Valores reales:** el `NIX_TOKEN` y la `GROQ_API_KEY` reales aparecen **0 veces** en `git log --all -p`.
-- **Otros secretos:** ninguna llave privada ni clave con prefijo conocido (`gsk_`, `sk-`, `ghp_`), y la contraseña
-  del servidor no aparece. Las 326 líneas que da `grep -i "api_key\|token\|password"` son nombres de
+- **Otros secretos:** ninguna llave privada ni clave con prefijo conocido (`gsk_`, `sk-`, `ghp_`). Las 326 líneas
+  que da la búsqueda de palabras como «api_key» o «token» son nombres de
   variables, código y valores falsos de las pruebas (`"x" * 40`, `"CLAVE"`, `token-de-prueba-…`).
 
 | Dónde | Qué | Cuándo |
@@ -210,14 +210,13 @@ Auditoría de secretos del mismo día:
 | `~/nix/.venv` (fuera de git) | Paquetes de los `requirements`, más mss, pillow, pynput, python-xlib y six para correr las pruebas de pantalla. | 2026-11-02 |
 | `~/nix/.git/config` | `core.sshCommand` para usar la llave de despliegue `~/.ssh/nix_deploy` al hacer push (la llave ya existía). | 2026-10-28 |
 | GitHub | Push de los commits hasta `d538c4c` (antes de la regla de no hacer push). Los 15 commits posteriores siguen solo en local. | hasta 2026-11-02 |
-| `sudo` | Solo lecturas: `ufw status verbose` y `sshd -T`. No se cambió el firewall (la regla `8765/tcp ALLOW 192.168.1.0/24` ya existía), ni SSH, ni se instaló nada con apt (ffmpeg ya estaba). | 2026-10-29 |
+| Permisos de administrador | Solo lecturas: el estado del firewall y la configuración de SSH. No se cambió el firewall (la regla `8765/tcp ALLOW 192.168.1.0/24` ya existía), ni SSH, ni se instaló nada con apt (ffmpeg ya estaba). | 2026-10-29 |
 | Cachés y temporales | Borradas las cachés locales `__pycache__` y `.pytest_cache` (git ya las ignoraba). `uvx vulture` quedó en la caché de uv (`~/.cache/uv`). Imagen de prueba en la carpeta temporal de la sesión (`/tmp/claude-1000/…/scratchpad/prueba.jpg`). | 2026-11-02 |
 | Groq (internet) | Llamadas de prueba con la clave: lista de modelos, una transcripción y dos descripciones de una imagen de prueba (patrón de colores, sin datos). | 2026-11-02 |
 
 **No se tocó:** Minecraft, DuckDNS, `/datos/respaldos` ni el archivo de Narwell. `/datos/nix` y
 `/datos/modelos/silero_vad.onnx` son del 2026-10-28 (fase 1). Linger ya estaba activo.
 
-⚠️ Sigue pendiente de Kirito cambiar la contraseña del servidor (`passwd`): la de `sudo` quedó escrita en el chat.
 
 ### 2026-11-02 — presencia por cámara (commits locales, sin push)
 Kirito la llamó «fase 3: presencia por cámara». En el plan es percepción (fase 5). El motor emocional, la fase 3
