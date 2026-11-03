@@ -234,13 +234,19 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
   pausas de ~300 ms («Creo que… la pizza»).
 - **Transcripción adelantada:** cuando llevas `STT_ADELANTO_MS` (150 ms) callado, ya se empieza a transcribir;
   si al cerrarse el turno no hubo más voz, se usa ese resultado.
+- **Cierre temprano** (`STT_CIERRE_TEMPRANO=1`): si el texto adelantado ya es una frase completa (termina en
+  `.`, `?` o `!`), el turno se cierra sin esperar el resto del silencio. Hoy casi nunca pasa: el texto adelantado
+  llega a ~550–700 ms de tu voz y el VAD ya cerró a los 300 (cada turno lo registra con `⏩`).
+- **Pre-roll:** a Whisper también van los 600 ms de antes de que el VAD detectara tu voz (`VAD_PRE_ROLL_MS`), así
+  no se pierde el arranque de la frase.
 - **Primera frase de la voz:** sale en cuanto el LLM da un punto, una coma o 5 palabras; las siguientes, por
   puntuación.
 - **Voz:** edge-tts en streaming (el MP3 entra a ffmpeg mientras llega). Un ffmpeg siempre ya arrancado (~35 ms
   menos) y una caché en memoria de frases cortas (las frases fijas y 15 aperturas típicas se precargan al
   arrancar): lo repetido suena al instante.
-- **Si Qwen llega a su límite de uso** (429: la cuenta gratuita de Groq admite ~5 turnos por minuto) o Groq no tiene
-  capacidad (498/503), ese turno lo responde el modelo de respaldo (`LLM_MODELO_RESPALDO`, gpt-oss) sin que se
+- **Si Qwen llega a su límite de uso** (429: la cuenta gratuita de Groq admite ~5 turnos por minuto y 200 000
+  tokens al día, unos 120 turnos), Groq no tiene capacidad (498/503) o no manda nada en `LLM_ESPERA_S` (6 s),
+  ese turno lo responde el modelo de respaldo (`LLM_MODELO_RESPALDO`, gpt-oss) sin que se
   note; el siguiente vuelve a Qwen. En el log: `journalctl --user -u nix | grep RESPALDO`.
 - **Router de LLM local (opcional):** con `LLM_PROVEEDOR=freellmapi` el LLM pasa por freellmapi y, si falla,
   responde Groq directo. Ver «Router de LLM local (freellmapi)».
@@ -263,15 +269,95 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
 - **Aclaraciones:** una sola palabra corta y rara («ble», «tor») o una transcripción poco fiable → «Perdón, no te
   entendí bien, ¿me lo repites?». Si algo más largo no tiene sentido, el prompt le pide que pida repetir en vez de
   inventar.
+- **Formato de voz:** cada respuesta empieza con una etiqueta de emoción (`[burla]`, `[animada]`...), tiene como
+  mucho 25 palabras y va sin listas, emojis ni markdown (`INSTRUCCIONES_VOZ` en `server/orquestador.py`).
 - **Memoria de sesión:** recuerda los últimos 10 turnos (`HISTORIAL_TURNOS`) de la conversación actual. Se borran
-  al desconectarse el PC; no se guardan en disco ni en memoria de largo plazo.
-- **Ánimo:** energía, paciencia y cercanía, de 0 a 1:
+  al desconectarse el PC. Lo que perdura son los hechos de la memoria de largo plazo (abajo).
+- **Ánimo:** energía, paciencia y cercanía (en el prompt, sobre 100):
   - cada respuesta los mueve como mucho 0,1 (risas y «gracias» suben la cercanía; insultos bajan la paciencia);
   - vuelven solos a su base (mitad en 10 min);
   - solo cambian el tono que se le pide en el prompt, no la voz;
   - viven en la sesión.
 - **Presencia y pantalla** son solo contexto: Nix no las menciona salvo que le preguntes, y ningún cambio de
   presencia la hace hablar.
+
+### Emociones en la voz de Dalia
+
+El LLM empieza cada respuesta con una etiqueta: `[neutral]`, `[burla]`, `[animada]`, `[cansada]`, `[sorprendida]`
+o `[cercana]`. `server/pipeline/emocion.py` la quita del texto antes de partirlo en frases (nunca se lee en voz alta
+ni se muestra) y la convierte en la prosodia de edge-tts:
+
+| Emoción | rate | pitch | volume |
+|---|---|---|---|
+| neutral | +0 % | +0 Hz | +0 % |
+| burla | +8 % | +4 Hz | +0 % |
+| animada | +10 % | +8 Hz | +8 % |
+| cansada | −10 % | −6 Hz | −8 % |
+| sorprendida | +6 % | +12 Hz | +5 % |
+| cercana | −4 % | −2 Hz | −4 % |
+
+- El rate se suma a `TTS_VELOCIDAD`.
+- La caché de voz guarda cada apertura con cada emoción.
+- El cliente recibe la emoción en `avatar.cmd` (para VTube Studio).
+- En el log: `🎭 emoción: burla`.
+
+### Interrumpirla sin perder lo que dices
+
+- **`BARGE_IN=0`** (lo que usa el servidor hoy): si hablas mientras Nix habla, no se le interrumpe, pero tu frase ya
+  **no se pierde**:
+  - se transcribe y se responde en cuanto ella termina; si dices varias, se responden en orden;
+  - si el texto es casi igual a lo que ella estaba diciendo, era su propio eco y se ignora (`🔇 era su propia voz`);
+  - lo de menos de `BARGE_MIN_VOZ_MS` (400 ms) se sigue tomando por eco.
+- **`BARGE_IN=1`**: tu voz la interrumpe en el servidor.
+- **`BARGE_CLIENTE=1`** (en el `.env` del PC, apagado por defecto): el cliente la calla al instante, sin esperar al
+  servidor, cuando el micrófono (ya sin eco) pasa de `BARGE_CLIENTE_UMBRAL_DB` (−35 dBFS) durante
+  `BARGE_CLIENTE_MIN_MS` (250 ms), y le manda `barge.in` al servidor.
+  - Va por energía: con bocinas fuertes, el eco que deje pasar el AEC podría dispararlo. Pruébalo y sube el
+    umbral (−30, −25) si se calla sola.
+- **El historial guarda lo que sí sonó:** al callarse, el cliente manda `playback.ack` con los milisegundos que
+  sonaron, y su respuesta queda solo hasta ahí, terminada en « —». Sin ese dato, el servidor lo estima por el reloj.
+
+### Memoria de largo plazo
+
+En `/datos/nix/nix/memoria.sqlite` (`NIX_DATOS_DIR/<personaje>`, permisos 600). Se apaga con `MEMORIA=0`.
+
+- **Qué guarda:** hechos sobre ti, con tipo, confianza y fecha.
+  - Los gustos, proyectos, datos y bromas no caducan.
+  - Los **estados pasajeros** («hoy estoy cansado», «ahorita juego Roblox») **caducan a las 48 h** y pesan menos con
+    la edad; Nix los ve con «puede que ya no sea así».
+  - Un hecho casi igual a otro lo refuerza en vez de duplicarse.
+- **Cómo los usa:** antes de cada respuesta, los 3 recuerdos más relevantes van al contexto. La búsqueda es de
+  texto completo con SQLite FTS5 y tarda ~1 ms; si pasa de 15 ms, el log lo avisa. En los 3 primeros turnos va
+  también el resumen de la sesión anterior.
+- **Cómo los aprende:** en segundo plano, cada 3 turnos (`MEMORIA_CADA_TURNOS`) y al desconectarte,
+  `openai/gpt-oss-20b` (`MEMORIA_MODELO`, con su propio límite de Groq) lee **lo que tú dijiste** y saca los hechos.
+  - Nunca usa la pantalla ni la cámara.
+  - No guarda contraseñas, datos bancarios ni temas íntimos.
+  - Al desconectarte resume la sesión.
+- **Ver o borrar** (en el servidor):
+  ```bash
+  cd ~/nix
+  .venv/bin/python -m server.memoria --listar          # todo, con id, tipo y caducidad
+  .venv/bin/python -m server.memoria --buscar "anime"  # lo que Nix usaría para ese tema
+  .venv/bin/python -m server.memoria --borrar 12
+  .venv/bin/python -m server.memoria --borrar-todo
+  ```
+
+### VTube Studio (en el PC)
+
+Opcional y apagado: `--vtube on` o `VTUBE=1`.
+
+1. **En VTube Studio:** Ajustes → «Start API» (puerto 8001).
+2. **La primera vez**, VTube Studio pregunta si permites el plugin «Nix». El permiso se guarda en
+   `%APPDATA%\Nix\vtube_token`, fuera del repositorio.
+3. **Expresiones:** en el `.env` del PC, une cada emoción con el nombre de una hotkey de tu modelo:
+   `VTS_HOTKEYS=burla:Sonrisa,animada:Feliz,cansada:Sueño,sorprendida:Sorpresa,cercana:Sonrojo`.
+   - Las expresiones de tipo toggle se apagan antes de encender otra; una emoción sin hotkey (p. ej. neutral)
+     deja la cara normal.
+4. **Boca:** el volumen de la voz de Nix **en el momento en que suena** mueve `MouthOpen` ~30 veces por segundo.
+   No hace falta cable de audio virtual.
+
+Si VTube Studio está cerrado, Nix sigue igual y el puente se reconecta solo.
 
 **Probar la conversación** (con el servicio corriendo en el servidor):
 ```powershell
@@ -281,7 +367,7 @@ uv run --python .venv python -m client.main
 ```
 ```bash
 # En el servidor: lo que entiende, lo que responde, cortes, filtro de tono y aclaraciones
-journalctl --user -u nix -f | grep --line-buffered -E "🗣️|🤖|✂️|🧹|🙉|RESPALDO|⏱️ turno"
+journalctl --user -u nix -f | grep --line-buffered -E "🗣️|🤖|✂️|🧹|🙉|🎭|🧠|⏳|🔇|⏩|RESPALDO|⏱️ turno"
 ```
 
 ## Seguridad
@@ -309,7 +395,8 @@ journalctl --user -u nix -f | grep --line-buffered -E "🗣️|🤖|✂️|🧹|
   `Nix [EN VIVO] - VIENDO TU PANTALLA (Ctrl+Alt+P pausa) - CAMARA ENCENDIDA (Ctrl+Alt+C apaga)`, o
   `Nix - pantalla y camara apagadas`. Cada vez que algo se enciende o se apaga sale además una línea 🔴 / ⚫.
 - **En el servidor**, la pantalla y la presencia solo se usan como contexto para el LLM. La presencia se olvida al
-  desconectarse el PC y no entra en el historial ni en ninguna memoria.
+  desconectarse el PC y no entra en el historial ni en ninguna memoria. La memoria de largo plazo solo aprende de
+  lo que dices en voz alta.
 
 ## Cámara: Nix sabe si estás ahí
 

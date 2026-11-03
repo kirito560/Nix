@@ -329,3 +329,34 @@ todavía hablas, como los asistentes de voz comerciales.
   - Búsqueda de secretos (prefijos `gsk_`, `sk-`, `ghp_`, `freellmapi-`, llaves privadas, asignaciones
     largas a clave/token/password) en los 86 archivos versionados y en todo el historial: 0 coincidencias.
     Los valores reales de `NIX_TOKEN` y `GROQ_API_KEY` aparecen 0 veces.
+
+### 2026-11-03 — ronda 3: emociones, cierre temprano, interrupciones, memoria y VTube Studio (commits locales, sin push)
+Antes de empezar: push de los 7 commits pendientes (aprobado por Kirito) y router freellmapi apagado.
+- **A. Emociones:** cada respuesta empieza con [neutral]/[burla]/[animada]/[cansada]/[sorprendida]/[cercana]; la
+  etiqueta no se dice y cambia rate/pitch/volume de Dalia. Prompt de voz nuevo (el de Kirito). 19 de 20 respuestas
+  medidas traían etiqueta.
+- **B. Cierre temprano:** 0 cierres tempranos en la medición. Whisper adelantado llega a ~550–700 ms y el VAD cierra a
+  los 300: el VAD no es el cuello de botella. Queda activo; no ahorra latencia.
+- **C. Interrupciones:**
+  - pre-roll de 600 ms;
+  - con BARGE_IN=0 la frase dicha encima se responde al terminar ella, en orden y sin su eco (6 de 6 en la
+    prueba; antes se perdían);
+  - historial con lo que sonó (`playback.ack`);
+  - `BARGE_CLIENTE=0` listo en el `.env.example` del cliente para probar.
+- **D. Memoria:**
+  - `/datos/nix/nix/memoria.sqlite`, con FTS5 (~1 ms);
+  - los estados caducan a las 48 h;
+  - extracción con `openai/gpt-oss-20b` (llama-3.1-8b-instant ya no existe);
+  - ver o borrar con `python -m server.memoria`;
+  - empieza vacía (se borraron los recuerdos falsos de la primera medición).
+- **Groq colgado:** si no manda nada en 6 s (`LLM_ESPERA_S`), responde el respaldo (pasó un cuelgue de 20 s).
+- **E. VTube Studio:** `--vtube on` en el PC, `VTS_HOTKEYS` para las expresiones y boca con el volumen real.
+  Probado solo contra un VTube Studio falso.
+- **Latencia: no bajó a ~1,0 s.** Con Qwen, 1,3–1,45 s p50 (la mañana, 1,2 s). Tabla en `CAMBIOS.md`.
+- **Límite diario de Qwen:** 200 000 tokens, ~100–130 turnos al día. Las mediciones de hoy lo agotaron: hasta que
+  se renueve, responde gpt-oss-120b.
+- Servicio activo y estable (0 reinicios, ~65 MB). 381 pruebas pasan.
+- **Pendiente (Kirito), en el PC:**
+  - `git pull`;
+  - probar `BARGE_CLIENTE=1` con bocinas;
+  - abrir VTube Studio con la API encendida, poner `VTS_HOTKEYS` y arrancar con `--vtube on`.

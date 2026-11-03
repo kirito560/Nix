@@ -626,3 +626,112 @@ Pedido: el `docker-compose.yml` del router publica el puerto solo en localhost, 
   - una línea `ss -ltn` para comprobar que solo escucha en `127.0.0.1:3001`;
   - el panel se abre desde el PC con un túnel SSH (`ssh -N -L 3001:127.0.0.1:3001 ...`). Antes decía
     `http://192.168.1.50:3001`, que daba por hecho que estaba abierto a la red.
+
+# Ronda 3: emociones, cierre temprano, interrupciones, memoria y VTube Studio (2026-11-03)
+
+Pedido de Kirito, en orden A → B → C → D → E, con pruebas, commit y medición (`medir_turnos.sh`) en cada paso.
+Antes de empezar: push de los 7 commits pendientes (aprobado) y `docker compose down` del router.
+
+## A. Emociones en la voz de Dalia
+- El prompt de voz es el que mandó Kirito:
+  - compañera con humor ácido ligero, nunca pesada;
+  - etiqueta de emoción obligatoria al inicio;
+  - máximo 25 palabras, sin markdown ni emojis, pausas con comas;
+  - pantalla comentada «como si estuviera al lado»;
+  - recuerdos usados con naturalidad.
+- Se mantienen los límites de siempre (nada de «skill issue», no insistir).
+- El ánimo va como «Energía: 70/100 | Paciencia | Cercanía» y tiñe el tono (con poca paciencia, más seca, pero
+  nunca pesada).
+- `server/pipeline/emocion.py` quita la etiqueta del stream aunque llegue partida («[bur» + «la]») y también
+  las acotaciones cortas a media respuesta («[risas]»). La traduce a rate/pitch/volume de Dalia (tabla en el
+  README).
+- La caché de voz separa emociones y precarga las 15 aperturas con cada una (93 frases al arrancar, en segundo
+  plano).
+- El historial guarda la respuesta con su etiqueta, para que el LLM siga el formato.
+- El cliente recibe `avatar.cmd` con la emoción.
+- **Medido:**
+  - 19 de 20 respuestas traían etiqueta y ninguna se leyó en voz alta.
+  - El primer audio de la voz subió de 233 a 379 ms p50. Una prueba directa con frases nuevas (6 por emoción)
+    dio neutral 580 ms y el resto entre 519 y 695: Microsoft iba lento para todas. **No hay penalización clara
+    por la prosodia**; es variación del servicio.
+
+## B. Cierre temprano por frase completa
+- Si el texto adelantado (a los 150 ms de silencio) termina en «.», «?» o «!», con 2 palabras o más y sin
+  puntos suspensivos, y no hubo más voz, el turno se cierra sin esperar el resto del silencio del VAD
+  (`STT_CIERRE_TEMPRANO=1`).
+- Cada turno registra con «⏩» cuándo se pidió y cuándo llegó el adelanto.
+- **Medido: 0 cierres tempranos en 20 turnos.** El adelanto llega a 542 ms p50 de tu voz y el VAD ya cerró a
+  los 321. El silencio del VAD **no está en el camino crítico**: lo que manda es Whisper (pedido a los 150 ms
+  más ~400 ms de Groq).
+- El ahorro de ~150 ms que estimé en el plan era un error: suponía que el VAD frenaba la respuesta.
+- Lo dejo activo porque no cuesta nada. Permitiría alargar `VAD_SILENCIO_MS` (para cortar menos frases con
+  pausas) sin perder velocidad en las frases completas.
+- Lo único que de verdad adelantaría la respuesta con Whisper gratis es pedir el adelanto antes (100 ms ahorraría
+  ~50 ms). Cuesta más peticiones del límite diario de Whisper (2000).
+
+## C. Interrupciones sin perder frases
+- **Pre-roll de 600 ms** (`VAD_PRE_ROLL_MS`, antes 360). Medición A/B: el adelanto llegó a 626 ms con 600 contra
+  610 ms con 360. La diferencia está dentro del ruido.
+- **Con `BARGE_IN=0`, la frase ya no se tira:**
+  - se transcribe y se responde cuando ella termina, sin contar para la latencia;
+  - si son varias, en orden (candado);
+  - si el texto coincide en un 60 % o más con lo que ella decía, es su eco y se ignora.
+  - Medido con 6 frases que se pisaban con su voz: **las 6 se respondieron**; antes se perdían todas.
+- **Historial con lo que sonó:**
+  - el orquestador guarda dónde empieza y acaba cada frase en el audio;
+  - al interrumpirse, lo estima por el reloj y lo corrige con `playback.ack`;
+  - una frase cortada se guarda en proporción, terminada en « —».
+- **Protocolo:** `barge.in` (con `pts_played`, para que el servidor no reciba el ack antes de interrumpir). Lo
+  pediste como `{"type": "barge_in"}`; usé `barge.in` para seguir el estilo de los demás mensajes
+  (`playback.flush`, `presencia.update`).
+- **Cliente** (`client/barge.py`):
+  - `Reproduccion` sabe cuánto sonó;
+  - `BargeCliente` la calla al instante si hablas encima; va por energía tras el AEC y está apagado
+    (`BARGE_CLIENTE=0`).
+  - No hice un VAD en el cliente: el VAD (Silero) está en el servidor y todo tu audio ya le llega entero.
+
+## D. Memoria de largo plazo
+- SQLite + FTS5 en `/datos/nix/nix/memoria.sqlite` (permisos 600). La búsqueda tarda ~1 ms y con 3000 hechos
+  sigue por debajo de 15 ms (prueba).
+- **Caducidad pedida por Kirito:** los estados pasajeros caducan a las 48 h y pesan la mitad cada 12 h; los
+  gustos, proyectos, datos y bromas no caducan.
+- **Extracción** en segundo plano, cada 3 turnos y al desconectarse, más un resumen de la sesión.
+  - **`llama-3.1-8b-instant` ya no existe en Groq** (404 `model_not_found`): uso `openai/gpt-oss-20b`, que tiene
+    su propio límite.
+  - Probado de verdad con una conversación inventada: sacó «Está cansado» (estado), «Está haciendo un bot de
+    Discord en Python» (proyecto)… y **no guardó la contraseña** que aparecía.
+- **Recuerdos falsos de las pruebas:** la primera medición guardó en la memoria real hechos de las frases de
+  prueba («Le gusta la pizza con piña»). Los borré con `--borrar-todo`; la base se había creado en esa misma
+  medición. El medidor ahora usa su propia carpeta de datos (`~/.cache/nix-medir/datos`).
+- **Groq colgado:** en una medición Qwen se colgó 20 s (`ReadTimeout`) y Nix tardó eso en decir «se me trabó el
+  cerebro». Ahora, si no manda nada en `LLM_ESPERA_S` (6 s), ese turno responde el respaldo.
+
+## E. VTube Studio
+- `client/vtube.py`, apagado (`--vtube on` o `VTUBE=1`):
+  - API pública de VTube Studio, con reconexión automática;
+  - permiso del plugin la primera vez (el token va a `%APPDATA%\Nix\vtube_token`);
+  - emoción → hotkey (`VTS_HOTKEYS`), sin pulsar dos veces una expresión toggle (la apagaría);
+  - `MouthOpen` con el volumen de lo que suena, medido en el callback de la tarjeta de audio.
+- Probado contra un VTube Studio falso (servidor WebSocket local). **Falta probarlo con VTube Studio de verdad
+  en el PC.**
+
+## Medición (20 turnos, voz sintética, servicio real)
+
+| Paso | Total p50 / p95 | Whisper | LLM | Voz | Nota |
+|---|---|---|---|---|---|
+| Antes de la ronda (mañana) | 1203 / 1623 | 273 | 338 | 233 | |
+| A emociones | 1308 / 1836 | 275 | 325 | 379 | Microsoft lento |
+| B cierre temprano | 1298 / 1700 | 221 | 353 | 348 | 0 cierres tempranos |
+| C pre-roll 600 + cola | 1455 / 1735 | 315 | 380 | 312 | |
+| C con pre-roll 360 (A/B) | 1435 / 5865 | 273 | 366 | 393 | Groq colgado 20 s en 1 turno |
+| D memoria | 1616 / 2124 | 367 | 598 | 257 | **19 de 20 con respaldo**: Qwen agotó su límite diario |
+| E (5 turnos de humo) | 1610 / 2045 | 400 | 612 | 407 | 4 de 5 con respaldo |
+
+**La latencia no bajó a ~1,0 s.** Con Qwen quedó entre 1,3 y 1,45 s; la mañana fue la mejor medición (1,2 s).
+- Ninguno de los bloques ataca el camino crítico, que sigue siendo Whisper (~400 ms tras el adelanto), el primer
+  token de Qwen (~350) y la primera frase de Microsoft (~250–400).
+- La variación entre mediciones (Groq y Microsoft según la hora) es mayor que cualquier cambio de esta ronda.
+
+**Límite diario de Qwen:** 200 000 tokens. El prompt de sistema ya mide ~1060 tokens antes del contexto, y con
+el historial cada turno gasta ~1500–2000: **~100–130 turnos al día** con Qwen. Las 6 mediciones de hoy
+(~125 turnos) lo agotaron, y desde ahí responde gpt-oss-120b.

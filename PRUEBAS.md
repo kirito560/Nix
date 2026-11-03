@@ -1,12 +1,12 @@
 # Resultado de pytest
 
-Ejecutado el 2026-11-03 05:45 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
+Ejecutado el 2026-11-03 17:30 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
 Las pruebas de audio usan un sounddevice falso y señales sintéticas; las de pantalla, un mss y un pynput falsos
 con pantallas dibujadas con Pillow; las de cámara, un OpenCV falso (y una con el clasificador Haar real).
-Las de Groq y las de personalidad usan LLM y servidores HTTP falsos (también para simular el 429); las del router freellmapi, un router falso: no gastan ninguna clave.
+Las de Groq y las de personalidad usan LLM y servidores HTTP falsos (también para simular el 429); las del router freellmapi, un router falso; las de VTube Studio, un VTube Studio falso (WebSocket local); las de la memoria, SQLite en memoria y un extractor falso: no gastan ninguna clave.
 Las del TTS usan un MP3 hecho con ffmpeg en lugar de Microsoft.
 
-**============================= 303 passed in 32.03s =============================**
+**============================= 381 passed in 37.07s =============================**
 
 ```
 tests/test_aec.py::test_cancela_el_eco_cuando_solo_habla_ella PASSED
@@ -37,6 +37,21 @@ tests/test_auth.py::test_firma_y_verificacion PASSED
 tests/test_auth.py::test_la_firma_de_un_rol_no_sirve_para_el_otro PASSED
 tests/test_auth.py::test_el_token_no_aparece_en_la_firma PASSED
 tests/test_auth.py::test_token_corto_rechazado PASSED
+tests/test_barge.py::test_lo_que_sono PASSED
+tests/test_barge.py::test_el_historial_guarda_lo_que_sono_segun_el_pc PASSED
+tests/test_barge.py::test_el_ack_llega_cuando_ya_empezo_el_turno_siguiente PASSED
+tests/test_barge.py::test_pre_roll_de_600_ms PASSED
+tests/test_barge.py::test_con_barge_in_apagado_la_frase_se_responde_al_terminar_ella PASSED
+tests/test_barge.py::test_su_propio_eco_no_se_responde PASSED
+tests/test_barge.py::test_una_frase_corta_durante_su_voz_sigue_siendo_eco PASSED
+tests/test_barge.py::test_es_eco PASSED
+tests/test_barge.py::test_el_gateway_atiende_barge_in_y_playback_ack PASSED
+tests/test_barge.py::test_reproduccion_calcula_cuanto_sono PASSED
+tests/test_barge.py::test_barge_cliente_la_calla_al_hablar_encima PASSED
+tests/test_barge.py::test_barge_cliente_no_hace_nada_si_ella_no_suena PASSED
+tests/test_barge.py::test_el_flush_del_servidor_manda_el_ack PASSED
+tests/test_barge.py::test_barge_cliente_apagado_por_defecto PASSED
+tests/test_barge.py::test_varias_frases_en_cola_se_responden_en_orden PASSED
 tests/test_camara.py::test_arranca_apagada PASSED
 tests/test_camara.py::test_apagada_no_abre_la_camara_aunque_este_conectada PASSED
 tests/test_camara.py::test_el_cliente_arranca_con_la_camara_apagada PASSED
@@ -57,12 +72,47 @@ tests/test_camara.py::test_haar_real_de_opencv PASSED
 tests/test_camara.py::test_estado_de_sesion PASSED
 tests/test_camara.py::test_el_gateway_guarda_la_presencia_en_la_sesion_y_la_olvida_al_desconectar PASSED
 tests/test_camara.py::test_la_presencia_va_al_prompt_y_no_al_historial PASSED
+tests/test_cierre_temprano.py::test_frase_completa_cierra_sin_esperar_el_silencio_del_vad PASSED
+tests/test_cierre_temprano.py::test_frase_abierta_espera_al_vad PASSED
+tests/test_cierre_temprano.py::test_si_volvio_a_hablar_antes_del_adelanto_no_se_cierra PASSED
+tests/test_cierre_temprano.py::test_apagado_espera_siempre_al_vad PASSED
+tests/test_cierre_temprano.py::test_frase_completa[Hola, \xbfqu\xe9 tal?-True] PASSED
+tests/test_cierre_temprano.py::test_frase_completa[Ya termin\xe9 el examen.-True] PASSED
+tests/test_cierre_temprano.py::test_frase_completa[\xa1No manches!-True] PASSED
+tests/test_cierre_temprano.py::test_frase_completa[Creo que...-False] PASSED
+tests/test_cierre_temprano.py::test_frase_completa[Creo que\u2026-False] PASSED
+tests/test_cierre_temprano.py::test_frase_completa[Bueno, y luego-False] PASSED
+tests/test_cierre_temprano.py::test_frase_completa[S\xed.-False] PASSED
+tests/test_cierre_temprano.py::test_frase_completa[-False] PASSED
+tests/test_cierre_temprano.py::test_frase_completa[None-False] PASSED
+tests/test_cierre_temprano.py::test_cerrar_ya_no_cierra_frases_demasiado_cortas PASSED
 tests/test_edge_pool.py::test_reusa_conexiones_y_repone_las_reservas PASSED
 tests/test_edge_pool.py::test_si_la_conexion_del_pool_esta_muerta_abre_otra PASSED
 tests/test_edge_pool.py::test_sin_conexion_usa_el_respaldo PASSED
 tests/test_edge_pool.py::test_una_frase_cortada_cierra_su_conexion PASSED
 tests/test_edge_pool.py::test_si_falla_a_mitad_no_repite_la_frase PASSED
 tests/test_edge_pool.py::test_sin_actividad_cierra_las_reservas PASSED
+tests/test_emocion.py::test_la_etiqueta_se_quita_y_decide_la_emocion PASSED
+tests/test_emocion.py::test_la_etiqueta_partida_en_varios_trozos PASSED
+tests/test_emocion.py::test_todas_las_emociones[neutral] PASSED
+tests/test_emocion.py::test_todas_las_emociones[burla] PASSED
+tests/test_emocion.py::test_todas_las_emociones[animada] PASSED
+tests/test_emocion.py::test_todas_las_emociones[cansada] PASSED
+tests/test_emocion.py::test_todas_las_emociones[sorprendida] PASSED
+tests/test_emocion.py::test_todas_las_emociones[cercana] PASSED
+tests/test_emocion.py::test_mayusculas_y_espacios_dentro_de_la_etiqueta PASSED
+tests/test_emocion.py::test_sin_etiqueta_es_neutral_y_el_texto_no_cambia PASSED
+tests/test_emocion.py::test_acotaciones_a_media_respuesta_no_se_leen PASSED
+tests/test_emocion.py::test_una_etiqueta_que_llega_tarde_no_cambia_la_emocion PASSED
+tests/test_emocion.py::test_corchetes_que_no_son_etiqueta_se_quedan PASSED
+tests/test_emocion.py::test_la_etiqueta_desconocida_se_quita_pero_es_neutral PASSED
+tests/test_emocion.py::test_prosodia_de_dalia PASSED
+tests/test_emocion.py::test_la_prosodia_suma_la_velocidad_base PASSED
+tests/test_emocion.py::test_edge_tts_recibe_rate_pitch_y_volume PASSED
+tests/test_emocion.py::test_la_cache_de_voz_separa_las_emociones PASSED
+tests/test_emocion.py::test_el_turno_usa_la_emocion_y_la_etiqueta_no_se_dice PASSED
+tests/test_emocion.py::test_sin_etiqueta_la_voz_es_neutral_y_el_historial_queda_igual PASSED
+tests/test_emocion.py::test_el_prompt_pide_la_etiqueta_y_brevedad PASSED
 tests/test_filtros.py::test_alucinaciones[Gracias.] PASSED
 tests/test_filtros.py::test_alucinaciones[\xa1Muchas gracias!] PASSED
 tests/test_filtros.py::test_alucinaciones[[M\xfasica]] PASSED
@@ -128,6 +178,22 @@ tests/test_llm.py::test_si_el_respaldo_tambien_falla_sube_el_error PASSED
 tests/test_llm.py::test_sin_respaldo_el_429_sube_igual PASSED
 tests/test_llm.py::test_otros_errores_no_usan_el_respaldo PASSED
 tests/test_llm.py::test_con_el_orquestador_el_usuario_no_nota_el_cambio PASSED
+tests/test_llm.py::test_si_groq_se_cuelga_responde_el_respaldo PASSED
+tests/test_llm.py::test_si_groq_se_cuelga_a_media_respuesta_sube_el_error PASSED
+tests/test_memoria.py::test_recuerda_lo_relevante_al_tema PASSED
+tests/test_memoria.py::test_como_maximo_tres_y_sin_acentos PASSED
+tests/test_memoria.py::test_el_mismo_hecho_no_se_duplica PASSED
+tests/test_memoria.py::test_los_estados_caducan_a_las_48_horas PASSED
+tests/test_memoria.py::test_un_estado_viejo_pesa_menos_que_uno_nuevo PASSED
+tests/test_memoria.py::test_buscar_tarda_menos_de_15_ms_con_miles_de_recuerdos PASSED
+tests/test_memoria.py::test_la_base_queda_solo_para_el_dueno PASSED
+tests/test_memoria.py::test_palabras_clave PASSED
+tests/test_memoria.py::test_extrae_cada_tres_turnos_y_resume_al_cerrar PASSED
+tests/test_memoria.py::test_si_falla_la_extraccion_no_pasa_nada PASSED
+tests/test_memoria.py::test_el_resumen_anterior_solo_en_los_primeros_turnos PASSED
+tests/test_memoria.py::test_el_orquestador_inyecta_recuerdos_y_avisa_cada_turno PASSED
+tests/test_memoria.py::test_extractor_groq_pide_json_al_modelo_pequeno PASSED
+tests/test_memoria.py::test_linea_de_comandos PASSED
 tests/test_orquestador.py::test_turno_completo PASSED
 tests/test_orquestador.py::test_historial_entre_turnos PASSED
 tests/test_orquestador.py::test_interrumpir_corta_y_manda_flush PASSED
@@ -231,6 +297,7 @@ tests/test_protocol.py::test_mensajes_ida_y_vuelta[playback.flush] PASSED
 tests/test_protocol.py::test_mensajes_ida_y_vuelta[state.sync] PASSED
 tests/test_protocol.py::test_mensajes_ida_y_vuelta[llm.text] PASSED
 tests/test_protocol.py::test_mensajes_ida_y_vuelta[error] PASSED
+tests/test_protocol.py::test_mensajes_ida_y_vuelta[barge.in] PASSED
 tests/test_protocol.py::test_todos_los_tipos_estan_cubiertos PASSED
 tests/test_protocol.py::test_mensajes_invalidos[{"type": "desconocido"}] PASSED
 tests/test_protocol.py::test_mensajes_invalidos[{"nonce": "sin tipo"}] PASSED
@@ -312,4 +379,15 @@ tests/test_vad.py::test_silencio_no_genera_eventos PASSED
 tests/test_vad.py::test_frase_completa PASSED
 tests/test_vad.py::test_ruido_corto_se_descarta PASSED
 tests/test_vad.py::test_dos_frases_separadas PASSED
+tests/test_vtube.py::test_pide_permiso_una_vez_y_guarda_el_token PASSED
+tests/test_vtube.py::test_un_token_viejo_se_renueva PASSED
+tests/test_vtube.py::test_emociones_a_hotkeys_sin_apagar_por_accidente PASSED
+tests/test_vtube.py::test_el_cliente_pasa_la_emocion_del_servidor PASSED
+tests/test_vtube.py::test_apertura_de_la_boca PASSED
+tests/test_vtube.py::test_la_boca_sigue_lo_que_suena PASSED
+tests/test_vtube.py::test_el_audio_mide_lo_que_suena PASSED
+tests/test_vtube.py::test_se_reconecta_si_vtube_studio_se_cierra PASSED
+tests/test_vtube.py::test_sin_vtube_studio_no_falla PASSED
+tests/test_vtube.py::test_leer_hotkeys PASSED
+tests/test_vtube.py::test_vtube_apagado_por_defecto PASSED
 ```
