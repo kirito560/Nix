@@ -57,6 +57,7 @@ class ConfigServidor:
     tts_ocio_s: float = 12.0                  # Microsoft cierra las inactivas entre 15 y 45 s
     # Barge-in: interrumpirla hablando. Con altavoces, su propia voz puede volver por el micrófono:
     # mientras habla, una frase solo cuenta si dura al menos BARGE_MIN_VOZ_MS; si no, se toma por eco.
+    stt_cierre_temprano: bool = True         # cerrar el turno si el adelanto ya es una frase completa (. ? !)
     barge_in: bool = True
     barge_min_voz_ms: float = 400.0
     # Percepción: apagada por defecto; nunca se envían imágenes a la nube sin activarla a mano.
@@ -107,6 +108,7 @@ class ConfigServidor:
             tts_conexiones=e.entero("TTS_CONEXIONES", 1),
             tts_ocio_s=e.decimal("TTS_OCIO_S", 12.0),
             barge_in=e.booleano("BARGE_IN", True),
+            stt_cierre_temprano=e.booleano("STT_CIERRE_TEMPRANO", True),
             barge_min_voz_ms=e.decimal("BARGE_MIN_VOZ_MS", 400.0),
             vision_habilitada=e.booleano("VISION_HABILITADA", False),
             vision_proveedor=e.texto("VISION_PROVEEDOR", "auto").lower(),

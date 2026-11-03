@@ -58,7 +58,8 @@ async def principal() -> None:
         orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, gateway.sesion.historial,
                                   contexto=contexto,
                                   max_oraciones=cfg.respuesta_max_oraciones, animo=gateway.sesion.animo)
-        return Escucha(detector, stt, orquestador, cfg.barge_in, cfg.barge_min_voz_ms, cfg.stt_adelanto_ms)
+        return Escucha(detector, stt, orquestador, cfg.barge_in, cfg.barge_min_voz_ms, cfg.stt_adelanto_ms,
+                       cfg.stt_cierre_temprano)
 
     async def preparar() -> None:
         """Al conectarse un cliente: conexiones con la voz y con Groq listas antes de que hable."""

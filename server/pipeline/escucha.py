@@ -9,6 +9,11 @@ Transcripción adelantada: con STT que no es streaming (Groq), en cuanto el usua
 callado se empieza a transcribir lo que hay. Si la frase termina sin más voz, ese resultado se usa y se
 ahorra la diferencia con VAD_SILENCIO_MS (~200 ms); si sigue hablando, se descarta.
 
+Cierre temprano (STT_CIERRE_TEMPRANO=1): si el texto adelantado ya es una frase completa (termina en «.», «?»
+o «!», sin puntos suspensivos y con 2 palabras o más) y no hubo más voz, el turno se cierra en ese momento sin
+esperar el resto del silencio del VAD. Cada turno registra cuándo se pidió y cuándo llegó el adelanto («⏩»),
+para ver qué etapa decide de verdad cuándo empieza la respuesta.
+
 Barge-in: si la frase empieza mientras el personaje habla, solo cuenta cuando junta BARGE_MIN_VOZ_MS de
 voz; entonces se interrumpe al personaje y la frase sigue como cualquier otra. Si termina antes, se toma
 por eco de su propia voz (o ruido) y se descarta sin transcribirla.
@@ -33,12 +38,22 @@ if TYPE_CHECKING:
 log = logging.getLogger("nix.escucha")
 
 
+def frase_completa(texto: str | None) -> bool:
+    """¿El texto ya parece una frase terminada? Whisper puntúa: «.», «?» o «!» al final. Los puntos
+    suspensivos («Creo que...») son una pausa a media frase, no un final."""
+    if not texto:
+        return False
+    t = texto.strip()
+    return (t.endswith((".", "?", "!")) and not t.endswith(("...", "…")) and len(t.split()) >= 2)
+
+
 class Escucha:
     def __init__(self, detector: DetectorVoz, stt: ProveedorSTT, orquestador: "Orquestador",
-                 barge_in: bool = True, barge_min_voz_ms: float = 400.0, adelanto_ms: float = 0.0):
+                 barge_in: bool = True, barge_min_voz_ms: float = 400.0, adelanto_ms: float = 0.0,
+                 cierre_temprano: bool = False):
         self.detector, self.stt, self.orquestador = detector, stt, orquestador
         self.barge_in, self.barge_min_voz_ms = barge_in, barge_min_voz_ms
-        self.adelanto_ms = adelanto_ms
+        self.adelanto_ms, self.cierre_temprano = adelanto_ms, cierre_temprano
         self.adelanto_de: float | None = None    # t_ultima_voz de la pausa ya adelantada
         self.reagrupador = Reagrupador()
         self.cola: asyncio.Queue | None = None
@@ -80,6 +95,38 @@ class Escucha:
             self.cola.put_nowait((ev.tipo, ev.t_ultima_voz, time.monotonic()))
             self.cola = None
 
+    def _vigilar_adelanto(self, sesion, cola: asyncio.Queue, t_voz: float, tiempos: dict) -> None:
+        tiempos.clear()
+        tiempos["pedido"] = time.monotonic()
+        tarea = getattr(sesion, "adelanto", None)
+        if tarea is not None:
+            tarea.add_done_callback(lambda t: self._adelanto_listo(t, cola, t_voz, tiempos))
+
+    def _adelanto_listo(self, tarea: asyncio.Task, cola: asyncio.Queue, t_voz: float, tiempos: dict) -> None:
+        ahora = time.monotonic()
+        tiempos["listo"] = ahora
+        if (not self.cierre_temprano or tarea.cancelled() or tarea.exception() is not None
+                or self.cola is not cola or self.pendiente_de_barge):
+            return
+        d = self.detector
+        if not d.en_frase or d.t_ultima_voz != t_voz or not frase_completa(tarea.result().texto):
+            return
+        if d.cerrar_ya():
+            tiempos["temprano"] = ahora
+            log.info("⏩ cierre temprano: la frase ya está completa a %.0f ms de tu voz", (ahora - t_voz) * 1000)
+            cola.put_nowait(("fin", t_voz, ahora))
+            self.cola = None
+
+    @staticmethod
+    def _registrar_adelanto(tiempos: dict, t_voz: float, t_vad: float, usado: bool) -> None:
+        if not usado or "pedido" not in tiempos:
+            return
+        ms = lambda t: (t - t_voz) * 1000  # noqa: E731
+        listo = f"listo a {ms(tiempos['listo']):.0f} ms" if "listo" in tiempos else "sin terminar"
+        cierre = "temprano" if "temprano" in tiempos else "por el VAD"
+        log.info("⏩ adelanto: pedido a %.0f ms de tu voz, %s; turno cerrado a %.0f ms (%s)",
+                 ms(tiempos["pedido"]), listo, ms(t_vad), cierre)
+
     def _lanzar(self, corrutina, nombre: str) -> None:
         tarea = asyncio.create_task(corrutina, name=nombre)
         self.tareas.add(tarea)
@@ -93,6 +140,7 @@ class Escucha:
             return
         terminada = False
         adelantado_de = None
+        tiempos: dict[str, float] = {}       # pedido / listo / temprano del adelanto (reloj del servidor)
         try:
             while True:
                 item = await cola.get()
@@ -102,6 +150,7 @@ class Escucha:
                 if item[0] == "adelantar":
                     adelantado_de = item[1]
                     sesion.adelantar()
+                    self._vigilar_adelanto(sesion, cola, item[1], tiempos)
                     continue
                 tipo, t_voz_fin, t_vad_fin = item
                 if tipo == "descartada":
@@ -119,6 +168,7 @@ class Escucha:
                     return
                 terminada = True
                 span.marcar("stt_final")
+                self._registrar_adelanto(tiempos, t_voz_fin, t_vad_fin, adelantado_de == t_voz_fin)
                 if resultado.repetir:
                     log.info("🙉 no se entendió bien (%s): pido que lo repita", resultado.motivo)
                     await self.orquestador.decir(turno, FRASE_NO_ENTENDI)

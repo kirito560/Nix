@@ -155,3 +155,12 @@ class DetectorVoz:
             self.p.reiniciar()
             eventos.append(evento)
         return eventos
+
+    def cerrar_ya(self) -> bool:
+        """Da la frase en curso por terminada sin esperar el silencio (cierre temprano por frase completa).
+        Devuelve False si no hay frase o es demasiado corta (esa la decide el silencio, como siempre)."""
+        if not self.en_frase or self.ms_voz < self.min_voz_ms:
+            return False
+        self._reset()
+        self.p.reiniciar()
+        return True
