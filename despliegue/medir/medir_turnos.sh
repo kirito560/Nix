@@ -5,7 +5,8 @@
 #   despliegue/medir/medir_turnos.sh <groq|freellmapi> [turnos=20]
 #
 # El proveedor se pasa al servicio con `systemctl --user set-environment` (gana al .env, que no se toca) y al
-# terminar se quita y Nix se reinicia con lo que diga el .env. Los archivos van a ~/.cache/nix-medir.
+# terminar se quita y Nix se reinicia con lo que diga el .env. Los archivos van a ~/.cache/nix-medir (también
+# los datos del personaje durante la medición: su memoria de prueba queda en ~/.cache/nix-medir/datos).
 set -euo pipefail
 PROVEEDOR=${1:?uso: medir_turnos.sh <groq|freellmapi> [turnos]}
 TURNOS=${2:-20}
@@ -17,9 +18,14 @@ mkdir -p "$D"
 WAV=$D/turnos_$TURNOS.wav
 [ -f "$WAV" ] || { echo "== creando $WAV ($TURNOS turnos)"; .venv/bin/python despliegue/medir/hacer_wav_turnos.py "$WAV" "$TURNOS"; }
 
-restaurar() { systemctl --user unset-environment LLM_PROVEEDOR; systemctl --user restart nix.service; }
+# Las frases de prueba no son tuyas: la memoria de largo plazo (y los demás datos del personaje) van a una
+# carpeta aparte durante la medición, para no llenar tu memoria real con recuerdos falsos.
+restaurar() {
+    systemctl --user unset-environment LLM_PROVEEDOR NIX_DATOS_DIR
+    systemctl --user restart nix.service
+}
 trap restaurar EXIT
-systemctl --user set-environment LLM_PROVEEDOR="$PROVEEDOR"
+systemctl --user set-environment LLM_PROVEEDOR="$PROVEEDOR" NIX_DATOS_DIR="$D/datos"
 desde=$(date '+%Y-%m-%d %H:%M:%S')
 systemctl --user restart nix.service
 # Espera a que la caché de voz esté llena (dos líneas «caché de voz»: frases fijas y aperturas con cada emoción).
