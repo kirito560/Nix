@@ -36,7 +36,7 @@ async def principal() -> None:
     log.info("👁️ Visión: %s", "ENCENDIDA" if cfg.vision_habilitada else "apagada")
     stt, llm, tts = crear_stt(cfg), crear_llm(cfg), crear_tts(cfg, personaje.voz)
     log.info("🎙️ STT: %s | 🧠 LLM: %s%s | 🔈 TTS: %s%s", stt.nombre, llm.nombre,
-             f" ({cfg.llm_modelo})" if llm.nombre != "stub" else "", tts.nombre,
+             _modelo_llm(cfg, llm), tts.nombre,
              f" ({getattr(tts, 'voz', '')})" if tts.nombre != "stub" else "")
     log.info("✋ Barge-in: %s", f"sí (mínimo {cfg.barge_min_voz_ms:.0f} ms de voz)" if cfg.barge_in else "no")
     vista = Vista(crear_vision(cfg), ResumenPantalla(cfg.vision_max_tokens)) if cfg.vision_habilitada else None
@@ -95,6 +95,14 @@ async def mantener_listo(cfg: ConfigServidor, gateway: Gateway, tts, cada_s: flo
         if cfg.groq_api_key:
             await groq_http.mantener_viva(cfg.groq_api_key)
 
+
+
+def _modelo_llm(cfg, llm) -> str:
+    if llm.nombre == "stub":
+        return ""
+    if llm.nombre == "freellmapi":
+        return f" (model=auto en {cfg.freellmapi_url}; respaldo: Groq {cfg.llm_modelo})"
+    return f" ({cfg.llm_modelo})"
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",

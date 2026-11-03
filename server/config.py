@@ -38,7 +38,10 @@ class ConfigServidor:
     vad_min_voz_ms: float = 250.0
     stt_adelanto_ms: float = 150.0            # 0 = no adelantar la transcripción; menor que vad_silencio_ms
     # LLM
-    llm_proveedor: str = "auto"               # auto | groq | stub
+    llm_proveedor: str = "auto"               # auto | groq | freellmapi | stub
+    freellmapi_url: str = ""                  # router local compatible con OpenAI, p. ej. http://127.0.0.1:3001/v1
+    freellmapi_clave: str = ""
+    freellmapi_espera_s: float = 4.0          # tope hasta el primer texto del router; pasado, responde Groq
     llm_modelo: str = "qwen/qwen3.8-27b"
     llm_modelo_respaldo: str = "openai/gpt-oss-120b"
     llm_razonamiento: str = "low"             # solo modelos gpt-oss: low | medium | high
@@ -88,6 +91,9 @@ class ConfigServidor:
             vad_min_voz_ms=e.decimal("VAD_MIN_VOZ_MS", 250.0),
             stt_adelanto_ms=e.decimal("STT_ADELANTO_MS", 150.0),
             llm_proveedor=e.texto("LLM_PROVEEDOR", "auto").lower(),
+            freellmapi_url=e.texto("FREELLMAPI_URL"),
+            freellmapi_clave=e.texto("FREELLMAPI_CLAVE"),
+            freellmapi_espera_s=e.decimal("FREELLMAPI_ESPERA_S", 4.0),
             llm_modelo=e.texto("LLM_MODELO", "qwen/qwen3.8-27b"),
             llm_modelo_respaldo=e.texto("LLM_MODELO_RESPALDO", "openai/gpt-oss-120b"),
             llm_razonamiento=e.texto("LLM_RAZONAMIENTO", "low").lower(),
