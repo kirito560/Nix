@@ -209,8 +209,9 @@ Auditoría de secretos del mismo día:
 | Servicio `nix` | Reiniciado varias veces para aplicar cambios del código y del `.env`; hoy queda activo con el código local más nuevo (aún sin push). | 2026-10-29 a 11-02 |
 | `~/nix/.venv` (fuera de git) | Paquetes de los `requirements`, más mss, pillow, pynput, python-xlib y six para correr las pruebas de pantalla. | 2026-11-02 |
 | `~/nix/.git/config` | `core.sshCommand` para usar la llave de despliegue `~/.ssh/nix_deploy` al hacer push (la llave ya existía). | 2026-10-28 |
-| GitHub | Push de los commits hasta `d538c4c` (antes de la regla de no hacer push). Los 15 commits posteriores siguen solo en local. | hasta 2026-11-02 |
+| GitHub | Push de los commits hasta `d538c4c` (antes de la regla de no hacer push). Los commits posteriores siguen solo en local. | hasta 2026-11-02 |
 | Permisos de administrador | Solo lecturas: el estado del firewall y la configuración de SSH. No se cambió el firewall (la regla `8765/tcp ALLOW 192.168.1.0/24` ya existía), ni SSH, ni se instaló nada con apt (ffmpeg ya estaba). | 2026-10-29 |
+| `~/nix/.venv` y servicio `nix` (2026-11-03) | Instalada la librería `openai` 3.42.1 (y sus dependencias). Durante las mediciones se pasó `LLM_PROVEEDOR` (y una vez `FREELLMAPI_URL=http://127.0.0.1:3001/v1`) con `systemctl --user set-environment`; se quitaron al terminar y Nix quedó reiniciado con su `.env`. Los WAV y logs de la medición están en `~/.cache/nix-medir/`. El router freellmapi no se instaló. | 2026-11-03 |
 | Cachés y temporales | Borradas las cachés locales `__pycache__` y `.pytest_cache` (git ya las ignoraba). `uvx vulture` quedó en la caché de uv (`~/.cache/uv`). Imagen de prueba en la carpeta temporal de la sesión (`/tmp/claude-1000/…/scratchpad/prueba.jpg`). | 2026-11-02 |
 | Groq (internet) | Llamadas de prueba con la clave: lista de modelos, una transcripción y dos descripciones de una imagen de prueba (patrón de colores, sin datos). | 2026-11-02 |
 
@@ -307,3 +308,15 @@ todavía hablas, como los asistentes de voz comerciales.
 **Pendiente:**
 - con `BARGE_IN=0`, si empiezas a hablar justo antes de que Nix termine, esa frase se pierde sin aviso;
 - probar en el PC con voz real (las pausas reales pueden ser más largas que las de prueba).
+
+### 2026-11-03 — router de LLM local freellmapi, opcional (commits locales, sin push)
+- `LLM_PROVEEDOR=freellmapi` usa un router local compatible con OpenAI (`model="auto"`). Si falla antes de la
+  primera palabra (sin conexión, 429, 5xx, más de 4 s), ese turno lo responde Groq directo y el log dice
+  RESPALDO. **Por defecto sigue Groq directo**; el `.env` del servidor no cambió.
+- URL y clave en `.env`: `FREELLMAPI_URL` y `FREELLMAPI_CLAVE` (`.env.example` sin valores).
+- Medidor de turnos en el repositorio: `despliegue/medir/medir_turnos.sh <groq|freellmapi> [turnos]`.
+- Medido: Groq directo, 20 turnos, total p50 1203 / p95 1623 ms. Modo router con el router apagado, 5 turnos:
+  5 RESPALDO y la misma latencia.
+- **Pendiente (Kirito):** instalar el router (README, «Router de LLM local»), añadir claves de proveedores en su
+  panel, poner la URL y la clave en `.env`, y medir 20 turnos con cada uno.
+- 303 pruebas pasan.

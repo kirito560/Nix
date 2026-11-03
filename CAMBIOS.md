@@ -563,3 +563,54 @@ tts_1er_audio→enviado    p50   1 / p95   1 ms
 total                    p50 1268 / p95 1551 ms   (antes 1495 / 2936, n=12)
 tras_vad                 p50 947 / p95 1230 ms   (antes 1083 / 2515)
 ```
+
+# Router de LLM local: freellmapi (2026-11-03)
+
+Pedido: poder usar un router local compatible con OpenAI (freellmapi) como LLM, sin quitar Groq.
+
+## Código
+- `server/pipeline/llm.py`:
+  - **`LLMRouter`**: librería `openai` con `base_url=FREELLMAPI_URL` y `model="auto"`, en streaming. Devuelve los
+    trozos de `delta.content`, igual que `LLMGroq`. Registra qué modelo eligió el router en cada turno.
+  - **`LLMConRespaldo`**: si el router falla antes de dar texto, ese turno lo responde Groq directo (con su
+    propio respaldo de gpt-oss) y se registra `🧠 RESPALDO: el router freellmapi falló (...)`. El turno siguiente
+    vuelve a probar el router.
+  - `crear_llm`: `LLM_PROVEEDOR=freellmapi` → router con Groq de respaldo. Sin la variable, `auto` o `groq` →
+    Groq directo, como antes.
+- `server/config.py`: `FREELLMAPI_URL`, `FREELLMAPI_CLAVE` y `FREELLMAPI_ESPERA_S` (4 s). Los nombres de las
+  variables que ya existían no cambian.
+- `server/main.py`: el log de arranque dice qué proveedor y qué respaldo se usan.
+- `requirements-server.txt`: `openai==3.42.1`, instalada en `.venv`.
+
+## Decisiones (la opción más simple)
+- **Cualquier fallo del router antes de la primera palabra pasa a Groq**, no solo conexión, 429, 5xx y tiempo
+  agotado. Una clave mal puesta (401) o un 400 también: si no, Nix se quedaría callada por un error de
+  configuración. El log dice el tipo de error, así se nota.
+- **Si el router ya empezó a hablar y se corta, no se cambia a Groq:** no se puede empezar otra respuesta a
+  media frase. El error sube y pasa lo mismo que con Groq.
+- **La librería `openai` no reintenta (`max_retries=0`):** cada reintento sumaría latencia, y para eso está Groq.
+- **Tope hasta la primera palabra: 4 s** (`FREELLMAPI_ESPERA_S`). El router puede tardar probando proveedores;
+  pasado ese tiempo, responde Groq.
+- **Si falta `FREELLMAPI_URL`**, avisa y usa Groq. **Si falta `GROQ_API_KEY`**, usa el router sin respaldo.
+
+## Medidor de turnos
+`despliegue/medir/medir_turnos.sh <groq|freellmapi> [turnos]` es el medidor de la ronda de latencia, que estaba
+solo en la carpeta temporal de la sesión. Ahora está en el repositorio, y el WAV de prueba admite N turnos
+(repite las 12 frases). El proveedor se pasa al servicio con `systemctl --user set-environment` durante la
+medición; el `.env` no se toca.
+
+## Pruebas (`tests/test_router_llm.py`, 15)
+Elección por `LLM_PROVEEDOR`; streaming con `model=auto` y la clave en la cabecera; respaldo con 429, 500,
+502, 503, sin conexión y tiempo agotado; el turno siguiente vuelve al router; si Groq también falla, sube el
+error; con el orquestador responde Groq y queda RESPALDO en el log. 303 pruebas pasan.
+
+## Medición en el servicio real (2026-11-03)
+El router **no está instalado** en el servidor (hacen falta claves de proveedores que solo tiene Kirito), así
+que no se pudo medir su latencia. Se midió:
+
+| | Turnos | RESPALDO | LLM (p50 / p95) | Total (p50 / p95) |
+|---|---|---|---|---|
+| `groq` | 20/20 | 0 | 338 / 472 ms | 1203 / 1623 ms |
+| `freellmapi` con el router apagado | 5/5 | 5 | 323 / 340 ms | 1228 / 1538 ms |
+
+Con el router apagado, la conexión se rechaza al instante y el respaldo no suma latencia apreciable.

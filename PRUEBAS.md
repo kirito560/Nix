@@ -1,12 +1,12 @@
 # Resultado de pytest
 
-Ejecutado el 2026-11-02 20:20 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
+Ejecutado el 2026-11-03 05:45 UTC en el servidor (Ubuntu, Python 3.13), con `uv run --python .venv pytest -v`.
 Las pruebas de audio usan un sounddevice falso y señales sintéticas; las de pantalla, un mss y un pynput falsos
 con pantallas dibujadas con Pillow; las de cámara, un OpenCV falso (y una con el clasificador Haar real).
-Las de Groq y las de personalidad usan LLM y servidores HTTP falsos (también para simular el 429): no gastan la clave.
+Las de Groq y las de personalidad usan LLM y servidores HTTP falsos (también para simular el 429); las del router freellmapi, un router falso: no gastan ninguna clave.
 Las del TTS usan un MP3 hecho con ffmpeg en lugar de Microsoft.
 
-**============================= 288 passed in 31.81s =============================**
+**============================= 303 passed in 32.03s =============================**
 
 ```
 tests/test_aec.py::test_cancela_el_eco_cuando_solo_habla_ella PASSED
@@ -237,6 +237,21 @@ tests/test_protocol.py::test_mensajes_invalidos[{"nonce": "sin tipo"}] PASSED
 tests/test_protocol.py::test_mensajes_invalidos[no es json] PASSED
 tests/test_protocol.py::test_mensajes_invalidos[{"type": "stt.text", "turn_id": "t", "texto": "x", "campo_extra": 1}] PASSED
 tests/test_protocol.py::test_mensajes_invalidos[{"type": "user.state", "ts": 1, "valence": 2.0, "attention": 0.5}] PASSED
+tests/test_router_llm.py::test_sin_la_variable_se_usa_groq PASSED
+tests/test_router_llm.py::test_con_la_variable_se_usa_el_router_con_groq_de_respaldo PASSED
+tests/test_router_llm.py::test_router_sin_url_usa_groq PASSED
+tests/test_router_llm.py::test_router_sin_clave_de_groq_va_solo PASSED
+tests/test_router_llm.py::test_el_router_responde_en_streaming_con_model_auto PASSED
+tests/test_router_llm.py::test_si_el_router_da_error_responde_groq[429] PASSED
+tests/test_router_llm.py::test_si_el_router_da_error_responde_groq[500] PASSED
+tests/test_router_llm.py::test_si_el_router_da_error_responde_groq[502] PASSED
+tests/test_router_llm.py::test_si_el_router_da_error_responde_groq[503] PASSED
+tests/test_router_llm.py::test_si_el_router_no_esta_encendido_responde_groq PASSED
+tests/test_router_llm.py::test_si_el_router_tarda_demasiado_responde_groq PASSED
+tests/test_router_llm.py::test_el_router_sin_primer_texto_a_tiempo_es_tiempo_agotado PASSED
+tests/test_router_llm.py::test_el_siguiente_turno_vuelve_a_probar_el_router PASSED
+tests/test_router_llm.py::test_si_tambien_falla_groq_sube_el_error PASSED
+tests/test_router_llm.py::test_con_el_orquestador_responde_groq_y_registra_respaldo PASSED
 tests/test_senal.py::test_pasa_altas_quita_graves_y_continua_y_deja_la_voz PASSED
 tests/test_senal.py::test_pasa_altas_por_tramas_igual_que_de_una_vez PASSED
 tests/test_senal.py::test_normalizador_lleva_la_voz_al_objetivo PASSED
@@ -297,5 +312,4 @@ tests/test_vad.py::test_silencio_no_genera_eventos PASSED
 tests/test_vad.py::test_frase_completa PASSED
 tests/test_vad.py::test_ruido_corto_se_descarta PASSED
 tests/test_vad.py::test_dos_frases_separadas PASSED
-============================= 288 passed in 31.81s =============================
 ```
