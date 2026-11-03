@@ -41,6 +41,7 @@ echo "== proveedor: $(grep -m1 '🧠 LLM:' "$LOG" | sed -E 's/.*🧠 LLM: ([^|]*
 echo "== turnos entendidos: $(grep -c '🗣️ usuario' "$LOG")   descartados: $(grep -c '🙉' "$LOG" || true)"
 echo "== RESPALDO: $(grep -c RESPALDO "$LOG" || true)   sin respuesta del LLM: $(grep -c '❌ el LLM' "$LOG" || true)"
 echo "== adelanto: cierres tempranos $(grep -c '⏩ cierre temprano' "$LOG" || true); llega (p50) a $(grep -o 'listo a [0-9]* ms' "$LOG" | grep -o '[0-9]*' | sort -n | awk '{a[NR]=$1} END {if (NR) print a[int((NR+1)/2)]; else print "-"}') ms de tu voz; el VAD cierra a $(grep -o 'turno cerrado a [0-9]* ms' "$LOG" | grep -o '[0-9]*' | sort -n | awk '{a[NR]=$1} END {if (NR) print a[int((NR+1)/2)]; else print "-"}') ms"
+echo "== memoria: $(grep -o '[0-9]* recuerdo(s) guardado(s)' "$LOG" | grep -o '^[0-9]*' | paste -sd+ | bc 2>/dev/null || echo 0) recuerdos nuevos; búsquedas lentas (>15 ms): $(grep -c 'buscar recuerdos tardó' "$LOG" || true)"
 echo "== emociones:"; grep -o '🎭 emoción: .*' "$LOG" | sort | uniq -c || true
 if [ "$PROVEEDOR" = freellmapi ]; then
     echo "== modelos que eligió el router:"; grep -o 'el router eligió .*' "$LOG" | sort | uniq -c || true
