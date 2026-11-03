@@ -259,3 +259,20 @@ def test_barge_cliente_apagado_por_defecto():
     assert crear_barge(Entorno({}), r, envio) is None
     b = crear_barge(Entorno({"BARGE_CLIENTE": "1", "BARGE_CLIENTE_UMBRAL_DB": "-30"}), r, envio)
     assert b is not None and b.umbral_db == -30 and b.min_ms == 250
+
+
+async def test_varias_frases_en_cola_se_responden_en_orden():
+    """Dos frases mientras ella habla: la segunda espera a que termine la respuesta de la primera."""
+    from server.pipeline.escucha import Escucha as E
+
+    class Orq(OrquestadorHablando):
+        async def al_texto_usuario(self, turno, texto, span, medir=True):
+            self.recibidas.append((texto, medir, self.hablando))
+            self.hasta = asyncio.get_running_loop().time() + 0.2      # responder le toma 200 ms
+
+    o = Orq(0.3)
+    e = E(DetectorVoz(PuntuadorEnergia(), silencio_ms=300), STTStub(), o, barge_in=False, barge_min_voz_ms=400)
+    await asyncio.gather(e._en_cola("t1", "primera frase", span()), e._en_cola("t2", "segunda frase", span()))
+    assert [t for t, _, _ in o.recibidas] == ["primera frase", "segunda frase"]
+    assert all(not hablando for _, _, hablando in o.recibidas)          # cada una, con ella callada
+    await e.cerrar()

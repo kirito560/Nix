@@ -78,6 +78,7 @@ class Escucha:
         self.tareas: set[asyncio.Task] = set()
         self.pendiente_de_barge = False      # la frase en curso empezó mientras el personaje hablaba
         self.voces_detectadas = 0            # frases que el VAD empezó (para el medidor del gateway)
+        self.fila = asyncio.Lock()           # frases en cola: se responden una tras otra, en orden
 
     async def recibir_audio(self, pcm16: bytes) -> None:
         for ventana in self.reagrupador.agregar(pcm16):
@@ -119,12 +120,13 @@ class Escucha:
             return
         log.info("🗣️ usuario (mientras ella hablaba): %s", texto)
         inicio = time.monotonic()
-        while self.orquestador.hablando and time.monotonic() - inicio < ESPERA_MAX_S:
-            await asyncio.sleep(0.05)
-        if time.monotonic() - inicio > 0.05:
-            log.info("⏳ respondo tu frase tras esperar %.1f s a que terminara", time.monotonic() - inicio)
-        # No cuenta para la latencia: esperó a propósito.
-        await self.orquestador.al_texto_usuario(turno, texto, span, medir=False)
+        async with self.fila:                # si hay varias, en el orden en que las dijiste
+            while self.orquestador.hablando and time.monotonic() - inicio < ESPERA_MAX_S:
+                await asyncio.sleep(0.05)
+            if time.monotonic() - inicio > 0.05:
+                log.info("⏳ respondo tu frase tras esperar %.1f s a que terminara", time.monotonic() - inicio)
+            # No cuenta para la latencia: esperó a propósito.
+            await self.orquestador.al_texto_usuario(turno, texto, span, medir=False)
 
     def _vigilar_adelanto(self, sesion, cola: asyncio.Queue, t_voz: float, tiempos: dict) -> None:
         tiempos.clear()
