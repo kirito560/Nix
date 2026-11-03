@@ -1,5 +1,7 @@
+import logging
 import json
 
+import logging
 import httpx
 import pytest
 
@@ -198,3 +200,17 @@ async def test_si_groq_se_cuelga_a_media_respuesta_sube_el_error():
         async for t in llm.responder([{"role": "user", "content": "hola"}]):
             trozos.append(t)
     assert trozos == ["Hola"]
+
+
+async def test_anota_los_tokens_de_cada_turno(caplog):
+    caplog.set_level(logging.INFO, "nix.llm")
+    capturado = {}
+    cuerpo = sse({"choices": [{"delta": {"content": "Va."}}]},
+                 {"choices": [], "usage": {"prompt_tokens": 812, "completion_tokens": 9,
+                                           "prompt_tokens_details": {"cached_tokens": 512}}},
+                 "[DONE]")
+    llm = LLMGroq("CLAVE", "qwen/qwen3.8-27b", cliente=groq_falso(cuerpo, capturado=capturado))
+    assert "".join([t async for t in llm.responder([{"role": "user", "content": "hola"}])]) == "Va."
+    assert capturado["json"]["stream_options"] == {"include_usage": True}
+    assert llm.ultimo_uso["prompt_tokens"] == 812
+    assert "📏 tokens qwen3.8-27b: entrada 812 (en caché 512), salida 9" in caplog.text

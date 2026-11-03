@@ -74,10 +74,12 @@ class LLMGroq(ProveedorLLM):
         self.espera_s = espera_s                  # tope de espera por trozo (Groq a veces se queda colgado)
         self.max_tokens, self.temperatura, self.razonamiento = max_tokens, temperatura, razonamiento
         self.http = cliente or groq_http.cliente()
+        self.ultimo_uso: dict = {}
 
     def cuerpo(self, mensajes: list[dict], modelo: str | None = None) -> dict:
         modelo = modelo or self.modelo
         cuerpo = {"model": modelo, "messages": mensajes, "stream": True,
+                  "stream_options": {"include_usage": True},       # tokens gastados, en el último trozo
                   "max_completion_tokens": self.max_tokens, "temperature": self.temperatura}
         if modelo.startswith("openai/gpt-oss") and self.razonamiento:
             cuerpo["reasoning_effort"] = self.razonamiento
@@ -125,6 +127,13 @@ class LLMGroq(ProveedorLLM):
                 raise ErrorLLM(f"Groq dejó de responder a media frase ({type(e).__name__})") from e
             raise LimiteDeUso(f"Groq no respondió en {self.espera_s:.0f} s ({type(e).__name__})") from e
 
+    def _anotar_uso(self, modelo: str, uso: dict) -> None:
+        """Tokens de cada petición (los cuenta Groq): la entrada es casi todo el gasto del límite diario."""
+        cache = (uso.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+        self.ultimo_uso = uso
+        log.info("📏 tokens %s: entrada %d (en caché %d), salida %d", modelo.split("/")[-1],
+                 uso.get("prompt_tokens", 0), cache, uso.get("completion_tokens", 0))
+
     async def _stream(self, mensajes: list[dict], modelo: str) -> AsyncIterator[str]:
         import httpx
         async with self.http.stream("POST", self.URL, json=self.cuerpo(mensajes, modelo),
@@ -145,7 +154,10 @@ class LLMGroq(ProveedorLLM):
                 dato = linea[5:].strip()
                 if dato == "[DONE]":
                     return
-                opciones = json.loads(dato).get("choices") or [{}]
+                datos = json.loads(dato)
+                if uso := datos.get("usage") or (datos.get("x_groq") or {}).get("usage"):
+                    self._anotar_uso(modelo, uso)
+                opciones = datos.get("choices") or [{}]
                 contenido = (opciones[0].get("delta") or {}).get("content")
                 if contenido:
                     yield contenido
