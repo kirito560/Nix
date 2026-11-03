@@ -207,10 +207,12 @@ async def test_anota_los_tokens_de_cada_turno(caplog):
     capturado = {}
     cuerpo = sse({"choices": [{"delta": {"content": "Va."}}]},
                  {"choices": [], "usage": {"prompt_tokens": 812, "completion_tokens": 9,
-                                           "prompt_tokens_details": {"cached_tokens": 512}}},
+                                           "prompt_tokens_details": {"cached_tokens": 512}},
+                  "x_groq": {"usage": {"prompt_tokens": 812}}},
                  "[DONE]")
     llm = LLMGroq("CLAVE", "qwen/qwen3.8-27b", cliente=groq_falso(cuerpo, capturado=capturado))
     assert "".join([t async for t in llm.responder([{"role": "user", "content": "hola"}])]) == "Va."
     assert capturado["json"]["stream_options"] == {"include_usage": True}
     assert llm.ultimo_uso["prompt_tokens"] == 812
     assert "📏 tokens qwen3.8-27b: entrada 812 (en caché 512), salida 9" in caplog.text
+    assert caplog.text.count("📏") == 1

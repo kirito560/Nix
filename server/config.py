@@ -54,7 +54,7 @@ class ConfigServidor:
     respuesta_max_oraciones: int = 2          # tope duro de oraciones por respuesta (0 = sin tope)
     llm_temperatura: float = 0.8
     llm_espera_s: float = 6.0                 # sin texto de Groq en este tiempo: responde el modelo de respaldo
-    historial_turnos: int = 10                # pares usuario/personaje que se recuerdan (la memoria llega en la fase 4)
+    historial_turnos: int = 6                 # pares usuario/personaje que van en cada turno (lo de antes, a la memoria)
     # TTS
     tts_proveedor: str = "auto"               # auto | edge | stub
     tts_voz: str = ""                         # vacío = la voz de la ficha del personaje
@@ -112,7 +112,7 @@ class ConfigServidor:
             respuesta_max_oraciones=e.entero("RESPUESTA_MAX_ORACIONES", 2),
             llm_temperatura=e.decimal("LLM_TEMPERATURA", 0.8),
             llm_espera_s=e.decimal("LLM_ESPERA_S", 6.0),
-            historial_turnos=e.entero("HISTORIAL_TURNOS", 10),
+            historial_turnos=e.entero("HISTORIAL_TURNOS", 6),
             tts_proveedor=e.texto("TTS_PROVEEDOR", "auto").lower(),
             tts_voz=e.texto("TTS_VOZ"),
             tts_velocidad=e.texto("TTS_VELOCIDAD", "+0%"),

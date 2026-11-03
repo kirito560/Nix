@@ -41,6 +41,8 @@ VIDA_MEDIA_ESTADO_S = 12 * 3600          # un estado de hace 12 h pesa la mitad
 VIDA_MEDIA_HECHO_DIAS = 180.0           # un gusto de hace medio año pesa la mitad
 PARECIDO_MISMO_HECHO = 0.7              # palabras en común para tomarlo por el mismo hecho
 MAX_RECUERDOS = 3
+MAX_TOKENS_MEMORIA = 300               # lo que la memoria puede añadir a cada turno (aprox.)
+CARACTERES_POR_TOKEN = 3.3              # español con el tokenizador de Qwen (medido con el uso que da Groq)
 TURNOS_CON_RESUMEN = 3                  # el resumen de la sesión anterior solo en los primeros turnos
 
 _NO_BUSCAR = set("""
@@ -203,18 +205,35 @@ class Memoria:
     def todos(self) -> list[dict]:
         return [dict(f) for f in self.db.execute("SELECT * FROM hechos ORDER BY visto DESC")]
 
-    def para_llm(self, texto: str, con_resumen: bool = False) -> str:
+    def para_llm(self, texto: str, con_resumen: bool = False, max_tokens: int = MAX_TOKENS_MEMORIA) -> str:
+        """Recuerdos para el prompt, sin pasar de ~max_tokens: los más relevantes primero; lo que no cabe,
+        fuera (el resumen de la sesión anterior se recorta)."""
+        quedan = int(max_tokens * CARACTERES_POR_TOKEN)
         lineas = []
+        cabecera = "Memoria relevante sobre el usuario (no la saques en cada respuesta):"
         for h in self.recordar(texto):
             cuando = f" ({_hace(h['edad_s'])}; puede que ya no sea así)" if h["tipo"] == "estado" else ""
-            lineas.append(f"- {h['texto']}{cuando}")
-        partes = []
-        if lineas:
-            partes.append("Memoria relevante sobre el usuario (úsala de forma natural, sin decir que la tienes "
-                          "guardada; no la saques en cada respuesta):\n" + "\n".join(lineas))
+            linea = f"- {h['texto']}{cuando}"
+            if len(linea) + 1 + (0 if lineas else len(cabecera)) > quedan:
+                break
+            quedan -= len(linea) + 1 + (0 if lineas else len(cabecera))
+            lineas.append(linea)
+        partes = [cabecera + "\n" + "\n".join(lineas)] if lineas else []
         if con_resumen and (r := self.ultimo_resumen()) is not None:
-            partes.append(f"La última vez que hablaron ({_hace(self.reloj() - r['fin'])}): {r['resumen']}")
+            inicio = f"La última vez que hablaron ({_hace(self.reloj() - r['fin'])}): "
+            if (cabe := quedan - len(inicio) - 1) >= 40:
+                partes.append(inicio + _recortar(r["resumen"], cabe))
         return "\n".join(partes)
+
+
+def tokens_aprox(texto: str) -> int:
+    return round(len(texto) / CARACTERES_POR_TOKEN)
+
+
+def _recortar(texto: str, maximo: int) -> str:
+    if len(texto) <= maximo:
+        return texto
+    return texto[:maximo - 1].rsplit(" ", 1)[0].rstrip(",;: ") + "…"
 
 
 def _consulta(claves: list[str]) -> str:

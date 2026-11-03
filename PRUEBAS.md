@@ -6,7 +6,7 @@ con pantallas dibujadas con Pillow; las de cámara, un OpenCV falso (y una con e
 Las de Groq y las de personalidad usan LLM y servidores HTTP falsos (también para simular el 429); las del router freellmapi, un router falso; las de VTube Studio, un VTube Studio falso (WebSocket local); las de la memoria, SQLite en memoria y un extractor falso: no gastan ninguna clave.
 Las del TTS usan un MP3 hecho con ffmpeg en lugar de Microsoft.
 
-**============================= 381 passed in 37.07s =============================**
+**============================= 384 passed in 37.15s =============================**
 
 ```
 tests/test_aec.py::test_cancela_el_eco_cuando_solo_habla_ella PASSED

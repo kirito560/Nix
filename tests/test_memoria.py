@@ -7,7 +7,7 @@ import time
 import httpx
 import pytest
 
-from server.memoria import (TTL_ESTADO_S, ExtractorGroq, Memoria, SesionMemoria, esperar_pendientes, main,
+from server.memoria import (MAX_TOKENS_MEMORIA, TTL_ESTADO_S, tokens_aprox, ExtractorGroq, Memoria, SesionMemoria, esperar_pendientes, main,
                             palabras_clave)
 from tests.test_orquestador import LLMFijo, orquestador, span
 
@@ -212,3 +212,19 @@ def test_linea_de_comandos(tmp_path, capsys):
     assert "Frieren" not in capsys.readouterr().out.split("borrado")[-1]
     main(["--db", str(db), "--borrar-todo"])
     assert Memoria(db).todos() == []
+
+
+def test_la_memoria_no_pasa_de_unos_300_tokens():
+    reloj = Reloj()
+    m = memoria(reloj)
+    for i in range(3):
+        m.guardar(f"Hecho {i} del anime: " + " ".join(f"detalle{i}x{j}" for j in range(60)), "gusto", 0.9)
+    m.guardar_resumen(reloj.t - 3600, "Habló de anime " + "y de muchas otras cosas " * 80)
+    texto = m.para_llm("anime", con_resumen=True)
+    assert "Hecho" in texto and tokens_aprox(texto) <= MAX_TOKENS_MEMORIA
+    assert texto.count("- Hecho") < 3                     # el que no cabe se queda fuera
+    m2 = memoria(reloj)
+    m2.guardar("Le gusta el anime Frieren", "gusto", 0.9)
+    m2.guardar_resumen(reloj.t - 3600, "Habló de anime " + "y de muchas otras cosas " * 80)
+    texto = m2.para_llm("anime", con_resumen=True)
+    assert "Frieren" in texto and texto.endswith("…") and tokens_aprox(texto) <= MAX_TOKENS_MEMORIA

@@ -271,7 +271,7 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
   inventar.
 - **Formato de voz:** cada respuesta empieza con una etiqueta de emoción (`[burla]`, `[animada]`...), tiene como
   mucho 25 palabras y va sin listas, emojis ni markdown (`INSTRUCCIONES_VOZ` en `server/orquestador.py`).
-- **Memoria de sesión:** recuerda los últimos 10 turnos (`HISTORIAL_TURNOS`) de la conversación actual. Se borran
+- **Memoria de sesión:** recuerda los últimos 6 turnos (`HISTORIAL_TURNOS=6`) de la conversación actual. Se borran
   al desconectarse el PC. Lo que perdura son los hechos de la memoria de largo plazo (abajo).
 - **Ánimo:** energía, paciencia y cercanía (en el prompt, sobre 100):
   - cada respuesta los mueve como mucho 0,1 (risas y «gracias» suben la cercanía; insultos bajan la paciencia);

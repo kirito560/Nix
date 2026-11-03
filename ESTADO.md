@@ -20,7 +20,7 @@
 
 - **Servidor** en `192.168.1.50:8765`: solo red local y autenticación mutua HMAC (el token no viaja).
 - **STT:** `STT_PROVEEDOR=groq` (Groq Whisper `whisper-large-v3-turbo`). Deepgram queda como opción futura.
-- **LLM (fase 2):** Groq en streaming, `qwen/qwen3.8-27b` (`server/pipeline/llm.py`). Si Groq lo retira (404 `model_not_found`), pasa solo a `LLM_MODELO_RESPALDO=openai/gpt-oss-120b`. Lleva la ficha del personaje, reglas para hablar en voz alta y los últimos 10 intercambios (solo en memoria).
+- **LLM (fase 2):** Groq en streaming, `qwen/qwen3.8-27b` (`server/pipeline/llm.py`). Si Groq lo retira (404 `model_not_found`), pasa solo a `LLM_MODELO_RESPALDO=openai/gpt-oss-120b`. Lleva la ficha del personaje, reglas para hablar en voz alta y los últimos 6 intercambios (`HISTORIAL_TURNOS=6`, solo en memoria).
 - **Frases (fase 2):** `server/pipeline/frases.py` corta el texto a medida que llega. La primera frase sale en la primera coma; se quitan emojis, markdown y acotaciones.
 - **TTS (fase 2):** edge-tts `es-MX-DaliaNeural` → ffmpeg → PCM de 24 kHz en trozos de 100 ms (`server/pipeline/tts.py`). Sintetiza hasta 2 frases a la vez.
 - **Orquestador (fase 2):** `server/orquestador.py`. Turnos con 3 tareas encadenadas (pensar, sintetizar, emitir), historial y latencia por etapa.
@@ -360,3 +360,9 @@ Antes de empezar: push de los 7 commits pendientes (aprobado por Kirito) y route
   - `git pull`;
   - probar `BARGE_CLIENTE=1` con bocinas;
   - abrir VTube Studio con la API encendida, poner `VTS_HOTKEYS` y arrancar con `--vtube on`.
+
+### 2026-11-03 (noche): menos tokens por turno
+
+- Ficha de Nix y reglas de voz acortadas sin cambiar la personalidad, `HISTORIAL_TURNOS=6`, memoria ≤ ~300 tokens.
+- Tokens de entrada medidos con Groq (3 turnos): turno 1 de 1329 a 865 (−35 %). Con historial lleno, ~1800 → ~1200.
+- El log anota los tokens de cada turno (`📏`). 384 pruebas pasan. Sin push.

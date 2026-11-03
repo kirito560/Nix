@@ -148,6 +148,7 @@ class LLMGroq(ProveedorLLM):
                 else:
                     error = ErrorLLM
                 raise error(f"Groq respondió {r.status_code}: {r.text[:200]}")
+            anotado = False
             async for linea in r.aiter_lines():
                 if not linea.startswith("data:"):
                     continue
@@ -155,8 +156,10 @@ class LLMGroq(ProveedorLLM):
                 if dato == "[DONE]":
                     return
                 datos = json.loads(dato)
-                if uso := datos.get("usage") or (datos.get("x_groq") or {}).get("usage"):
+                # Groq lo manda en «usage» y también en «x_groq.usage»: se anota una sola vez.
+                if not anotado and (uso := datos.get("usage") or (datos.get("x_groq") or {}).get("usage")):
                     self._anotar_uso(modelo, uso)
+                    anotado = True
                 opciones = datos.get("choices") or [{}]
                 contenido = (opciones[0].get("delta") or {}).get("content")
                 if contenido:

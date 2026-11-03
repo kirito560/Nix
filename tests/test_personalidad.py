@@ -85,7 +85,7 @@ async def test_sin_tope_dice_todo():
 
 
 def test_el_prompt_pide_una_o_dos_frases_sin_listas():
-    assert "una o dos frases" in INSTRUCCIONES_VOZ and "sin listas" in INSTRUCCIONES_VOZ
+    assert "una o dos frases" in INSTRUCCIONES_VOZ.lower() and "sin listas" in INSTRUCCIONES_VOZ.lower()
 
 
 # ------------------------------------------------------------------ tono
@@ -279,3 +279,13 @@ def test_la_presencia_es_solo_contexto():
     texto = s.para_llm()
     assert "no lo menciones salvo que el usuario pregunte" in texto
     assert "levantado" not in texto and "oírte" not in texto
+
+
+def test_el_prompt_de_sistema_es_corto():
+    """Cada turno manda la ficha y las reglas de voz: que no vuelvan a crecer sin darse cuenta (~1300 tokens
+    antes de acortarlos el 2026-11-03; el límite diario de Qwen se mide en tokens de entrada)."""
+    from server.memoria import tokens_aprox
+    from server.orquestador import prompt_sistema
+    nix = cargar_personaje("nix", ConfigServidor(token="x" * 40).carpeta_personajes, Path("/tmp/nix-x"))
+    assert tokens_aprox(prompt_sistema(nix)) <= 800
+    assert ConfigServidor(token="x" * 40).historial_turnos == 6

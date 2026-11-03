@@ -735,3 +735,24 @@ Antes de empezar: push de los 7 commits pendientes (aprobado) y `docker compose 
 **Límite diario de Qwen:** 200 000 tokens. El prompt de sistema ya mide ~1060 tokens antes del contexto, y con
 el historial cada turno gasta ~1500–2000: **~100–130 turnos al día** con Qwen. Las 6 mediciones de hoy
 (~125 turnos) lo agotaron, y desde ahí responde gpt-oss-120b.
+
+# Menos tokens por turno (2026-11-03)
+
+Cada turno manda a Groq la ficha de Nix, las reglas de voz, el ánimo, la memoria y el historial. El límite
+diario de Qwen (200 000 tokens) se gastaba casi todo en eso.
+
+- **Medición:** el servidor anota en el log los tokens de cada petición, que cuenta Groq (`📏 tokens ...: entrada N`),
+  y `medir_turnos.sh` los resume.
+- **Ficha de Nix** (`personajes/nix.md`): de 2603 a 1643 caracteres. Se quitó lo repetido con las reglas de voz y
+  la sección VOZ (no sirve al LLM); se conservan todos los rasgos, gustos, límites y el aspecto.
+- **Reglas de voz** (`INSTRUCCIONES_VOZ`): de 1646 a 863 caracteres, con las mismas reglas.
+- **Historial:** `HISTORIAL_TURNOS` de 10 a 6 (también en el `.env` del servidor).
+- **Memoria:** como máximo ~300 tokens (`MAX_TOKENS_MEMORIA`); si no cabe un recuerdo se queda fuera y el resumen
+  de la sesión anterior se recorta.
+
+| Medición (3 turnos, Qwen) | Turno 1 (sin historial) | Turno 2 |
+|---|---|---|
+| Antes | 1329 | 1373 |
+| Después | 865 | 921 |
+
+Con la conversación ya larga (cada intercambio suma ~45–60 tokens): antes ~1800–1900 por turno, ahora ~1150–1250.
