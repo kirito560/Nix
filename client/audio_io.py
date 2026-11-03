@@ -166,6 +166,13 @@ class Tramador:
         return tramas
 
 
+def _rms(pcm16: np.ndarray) -> float:
+    """RMS (0..1) de un bloque PCM16."""
+    if not len(pcm16):
+        return 0.0
+    return float(np.sqrt(np.mean((pcm16.astype(np.float32) / 32768.0) ** 2)))
+
+
 class ColaBytes:
     """FIFO de bytes entre el bucle de asyncio (escribe) y el callback de audio (lee). Lee avanzando un índice
     en lugar de recortar el inicio, que con frases largas copiaba todo lo pendiente cada 20 ms."""
@@ -293,6 +300,7 @@ class Altavoz:
         self.sr_voz: Optional[int] = None
         self.remuestreo: Optional[Remuestreador] = None
         self.fallo_en: Optional[float] = None
+        self.nivel_salida = 0.0                          # RMS (0..1) de lo que suena ahora (boca del avatar)
 
     def reproducir(self, sample_rate: int, pcm: bytes) -> None:
         if self.stream is None and not self._abrir():
@@ -330,6 +338,7 @@ class Altavoz:
 
     def _callback(self, salida, _frames, _tiempo, _estado) -> None:
         self.cola.leer_en(salida, len(salida))
+        self.nivel_salida = _rms(np.frombuffer(salida, "<i2"))
 
     def cerrar(self) -> None:
         if self.stream is not None:
@@ -354,6 +363,8 @@ class GrabadorWav:
     def pendiente_ms(self) -> float:
         return 0.0                                       # se graba al instante
 
+    nivel_salida = 0.0
+
     def vaciar(self) -> None:
         pass
 
@@ -377,6 +388,12 @@ class AudioDuplex:
         self.remuestreo: Optional[Remuestreador] = None
         self.separado: Optional[Altavoz] = None      # si no hubo flujo dúplex
         self.guarda = GuardaEco()
+        self._nivel = 0.0                            # RMS de lo que suena ahora (lo mide el callback)
+
+    @property
+    def nivel_salida(self) -> float:
+        """RMS (0..1) de la voz que está sonando en este momento (para la boca del avatar)."""
+        return self.separado.nivel_salida if self.separado is not None else self._nivel
 
     @property
     def eco_db(self) -> list[float]:
@@ -442,6 +459,7 @@ class AudioDuplex:
             if estado:
                 log.warning("⚠️ audio: %s", estado)
             ref = self.cola_salida.leer(n_bytes)
+            self._nivel = _rms(np.frombuffer(ref, "<i2"))
             if alt.canales == 1:
                 salida[:n_bytes] = ref
             else:

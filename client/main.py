@@ -9,6 +9,7 @@ responde el personaje, y reproduce su voz.
     uv run python -m client.main --probar-audio                   # tono por el altavoz y nivel del micrófono
     uv run python -m client.main --pantalla on                    # arrancar con la captura de pantalla encendida
     uv run python -m client.main --camara on                      # arrancar con la presencia por cámara encendida
+    uv run python -m client.main --vtube on                       # mover el modelo de VTube Studio
 """
 from __future__ import annotations
 
@@ -31,12 +32,14 @@ from client.screen_capture import EXCLUIDAS_POR_DEFECTO, Atajos, CapturaPantalla
 from client.ws_client import ErrorAutenticacion, ejecutar
 from shared.auth import validar_token
 from shared.config_base import Entorno, cargar_env
-from shared.protocol import CIERRE_NO_AUTORIZADO, CIERRE_REEMPLAZADO, LlmText, PlaybackFlush, SttText
+from client.vtube import URL_POR_DEFECTO as VTUBE_URL, PuenteVTube, leer_hotkeys
+from shared.protocol import CIERRE_NO_AUTORIZADO, CIERRE_REEMPLAZADO, AvatarCmd, LlmText, PlaybackFlush, SttText
 
 log = logging.getLogger("nix.cliente")
 
 
-def crear_mostrar(salida, reproduccion: Reproduccion | None = None, envio: Envio | None = None):
+def crear_mostrar(salida, reproduccion: Reproduccion | None = None, envio: Envio | None = None,
+                  vtube: PuenteVTube | None = None):
     async def mostrar(msg) -> None:
         if isinstance(msg, SttText):
             print(f"🗣️  tú: {msg.texto}", flush=True)
@@ -48,6 +51,8 @@ def crear_mostrar(salida, reproduccion: Reproduccion | None = None, envio: Envio
             elif (ack := reproduccion.callar()) is not None and envio is not None:
                 await envio.mandar(ack)              # cuánto sonó: el historial guarda solo eso
             print("✋ (interrumpida)", flush=True)
+        elif isinstance(msg, AvatarCmd) and vtube is not None:
+            vtube.emocion(msg.expression)
     return mostrar
 
 
@@ -74,6 +79,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--todos", action="store_true", help="con --probar-audio: probar cada dispositivo")
     ap.add_argument("--pantalla", choices=("on", "off"), default="off",
                     help="captura de pantalla al arrancar (apagada por defecto; Ctrl+Alt+P la enciende o pausa)")
+    ap.add_argument("--vtube", choices=("on", "off"), default="on" if e.booleano("VTUBE", False) else "off",
+                    help="mover un modelo de VTube Studio (expresiones y boca); apagado por defecto")
     ap.add_argument("--camara", choices=("on", "off"), default="off",
                     help="presencia por cámara (apagada por defecto; solo manda sí/no; Ctrl+Alt+C la apaga)")
     args = ap.parse_args(argv)
@@ -109,7 +116,8 @@ def main(argv: list[str] | None = None) -> None:
                                                presencia=crear_presencia(e, indicador),
                                                encender_camara=args.camara == "on",
                                                reproduccion=reproduccion, envio=envio,
-                                               barge=crear_barge(e, reproduccion, envio)))
+                                               barge=crear_barge(e, reproduccion, envio),
+                                               vtube=crear_vtube(e, salida) if args.vtube == "on" else None))
     except ErrorAutenticacion as err:
         log.error("❌ autenticación: %s", err)
         sys.exit(1)
@@ -150,6 +158,13 @@ def crear_barge(e: Entorno, reproduccion: Reproduccion, envio: Envio) -> BargeCl
     return barge
 
 
+def crear_vtube(e: Entorno, salida) -> PuenteVTube:
+    hotkeys = leer_hotkeys(e.texto("VTS_HOTKEYS"))
+    log.info("🎭 VTube Studio: ENCENDIDO (%s); emociones con hotkey: %s", e.texto("VTUBE_URL", VTUBE_URL),
+             ", ".join(f"{k}->{v}" for k, v in hotkeys.items()) or "ninguna (solo la boca)")
+    return PuenteVTube(hotkeys, e.texto("VTUBE_URL", VTUBE_URL), nivel=lambda: salida.nivel_salida)
+
+
 def crear_presencia(e: Entorno, indicador: Indicador | None = None) -> Presencia:
     return Presencia(indice=int(e.decimal("CAMARA_INDICE", 0)),
                      al_cambiar_estado=indicador.camara if indicador else None)
@@ -158,7 +173,8 @@ def crear_presencia(e: Entorno, indicador: Indicador | None = None) -> Presencia
 async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio, captura: CapturaPantalla,
                                  encender: bool = False, presencia: Presencia | None = None,
                                  encender_camara: bool = False, reproduccion: Reproduccion | None = None,
-                                 envio: Envio | None = None, barge: BargeCliente | None = None) -> None:
+                                 envio: Envio | None = None, barge: BargeCliente | None = None,
+                                 vtube: PuenteVTube | None = None) -> None:
     """La conversación de siempre, más la captura de pantalla y la presencia por cámara (las dos apagadas salvo
     `encender` / `encender_camara`) y sus atajos."""
     atajos = Atajos(captura, presencia)
@@ -171,6 +187,8 @@ async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio,
         if not (encender_camara and presencia.activar()) and presencia.al_cambiar_estado is not None:
             presencia.al_cambiar_estado(False)
     tareas = [asyncio.create_task(captura.correr(), name="pantalla")]
+    if vtube is not None:
+        tareas.append(asyncio.create_task(vtube.correr(), name="vtube"))
     if presencia is not None:
         tareas.append(asyncio.create_task(presencia.correr(), name="camara"))
 
@@ -183,7 +201,7 @@ async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio,
 
     try:
         await conversar_siempre(url, token, fuente, salida, al_audio, al_conectar=al_conectar,
-                                reproduccion=reproduccion, envio=envio, barge=barge)
+                                reproduccion=reproduccion, envio=envio, barge=barge, vtube=vtube)
     finally:
         for tarea in tareas:
             tarea.cancel()
@@ -195,7 +213,7 @@ async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio,
 
 async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, al_audio,
                             al_conectar=None, reproduccion: Reproduccion | None = None, envio: Envio | None = None,
-                            barge: BargeCliente | None = None) -> None:
+                            barge: BargeCliente | None = None, vtube: PuenteVTube | None = None) -> None:
     """Con el micrófono: si se corta la conexión (reinicio del servidor, Wi-Fi...), se reconecta sola,
     esperando 1, 2, 4... hasta 10 s. No reintenta si el token es incorrecto o si otro cliente la reemplazó."""
     espera = 1.0
@@ -204,7 +222,7 @@ async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, a
         try:
             origen = fuente.tramas() if barge is None else barge.vigilar(fuente.tramas())
             async with aclosing(origen) as tramas:
-                await ejecutar(url, token, tramas, crear_mostrar(salida, reproduccion, envio), al_audio=al_audio,
+                await ejecutar(url, token, tramas, crear_mostrar(salida, reproduccion, envio, vtube), al_audio=al_audio,
                                al_conectar=al_conectar)
             return
         except ConnectionClosed as err:
