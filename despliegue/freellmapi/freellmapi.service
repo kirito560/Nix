@@ -1,6 +1,6 @@
 # Servicio de usuario del router de LLM local (freellmapi), opcional: solo para LLM_PROVEEDOR=freellmapi.
 # Instalar (ver README.md, «Router de LLM local»):
-#            cp ~/nix/despliegue/freellmapi.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+#            cp ~/nix/despliegue/freellmapi/freellmapi.service ~/.config/systemd/user/ && systemctl --user daemon-reload
 #            systemctl --user enable --now freellmapi
 # Registro:  journalctl --user -u freellmapi -f
 [Unit]

@@ -1,0 +1,31 @@
+# Router de LLM local (freellmapi) con Docker, para LLM_PROVEEDOR=freellmapi en Nix. Opcional.
+# Instalar (ver README.md, «Router de LLM local»): copiar a ~/freellmapi/ junto a su .env y
+#            cd ~/freellmapi && docker compose up -d
+#
+# El puerto se publica SOLO en 127.0.0.1: Docker escribe sus propias reglas de iptables y se salta ufw, así que
+# "3001:3001" o "0.0.0.0:3001:3001" dejarían el router (y las claves de los proveedores) abierto a toda la red
+# aunque ufw diga lo contrario. Fijo a propósito, sin variable (el compose original admite HOST_BIND=0.0.0.0).
+# Nix corre en este mismo servidor y entra por http://127.0.0.1:3001/v1; el panel, por un túnel SSH.
+#
+# Sin el servicio «autoupdate» (Watchtower) del compose original: monta el socket de Docker, que equivale a root.
+services:
+  freellmapi:
+    image: ghcr.io/tashfeenahmed/freellmapi:latest
+    env_file: .env                    # ENCRYPTION_KEY y PORT; fuera de este repositorio
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+    ports:
+      - "127.0.0.1:3001:3001"         # solo localhost: NUNCA 0.0.0.0
+    volumes:
+      - freellmapi-data:/app/server/data
+    restart: unless-stopped
+    mem_limit: 512m                   # que un fallo del router no se lleve al servidor de Minecraft por delante
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/ping').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  freellmapi-data:

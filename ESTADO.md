@@ -317,6 +317,8 @@ todavía hablas, como los asistentes de voz comerciales.
 - Medidor de turnos en el repositorio: `despliegue/medir/medir_turnos.sh <groq|freellmapi> [turnos]`.
 - Medido: Groq directo, 20 turnos, total p50 1203 / p95 1623 ms. Modo router con el router apagado, 5 turnos:
   5 RESPALDO y la misma latencia.
+- **El router solo escucha en localhost:** el compose del repo (`despliegue/freellmapi/docker-compose.yml`)
+  publica `127.0.0.1:3001:3001`; nunca 0.0.0.0, porque Docker se salta ufw. El panel se abre con un túnel SSH.
 - **Pendiente (Kirito):** instalar el router (README, «Router de LLM local»), añadir claves de proveedores en su
   panel, poner la URL y la clave en `.env`, y medir 20 turnos con cada uno.
 - 303 pruebas pasan.

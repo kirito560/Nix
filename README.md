@@ -439,9 +439,30 @@ dirección compatible con OpenAI. Nix le pide `model="auto"` y el router elige e
 - Si el router ya empezó a responder y se corta a media frase, no se cambia a Groq: Nix dice lo que alcanzó
   a decir, igual que con Groq.
 
-### Instalarlo en el servidor (sin Docker)
+### Instalarlo en el servidor
 
-El servidor ya tiene Node 22 (el router pide Node 20 o más).
+El router solo tiene que oírse **dentro del servidor** (`127.0.0.1:3001`): Nix corre en la misma máquina, y el
+panel se abre por un túnel SSH. Guarda las claves de los proveedores, así que nunca se publica en la red.
+
+**Opción A: con Docker.** Usa el `docker-compose.yml` de este repositorio, no el del router. Publica el puerto
+solo en localhost (`"127.0.0.1:3001:3001"`). **No lo cambies a `3001:3001` ni a `0.0.0.0`:** Docker escribe
+sus propias reglas de iptables y se salta ufw, así que el router quedaría abierto a toda la red aunque ufw
+diga lo contrario. Tampoco trae el servicio de actualización automática del original (monta el socket de
+Docker, que equivale a root). El servidor todavía no tiene Docker.
+
+```bash
+mkdir -p ~/freellmapi && cd ~/freellmapi
+cp ~/nix/despliegue/freellmapi/docker-compose.yml .
+# Clave con la que el router cifra las claves de los proveedores. Se queda en ~/freellmapi/.env (no en Nix).
+printf "ENCRYPTION_KEY=%s\nPORT=3001\n" "$(openssl rand -hex 32)" > .env
+chmod 600 .env
+docker compose up -d
+docker compose logs -f                          # Ctrl+C para salir
+ss -ltn | grep 3001                             # debe decir 127.0.0.1:3001, nunca 0.0.0.0:3001 ni [::]:3001
+```
+
+**Opción B: sin Docker.** El servidor ya tiene Node 22 (el router pide Node 20 o más). Aquí sí manda ufw: no le
+abras el puerto 3001 (`ufw allow 3001` nunca).
 
 ```bash
 cd ~
@@ -449,19 +470,25 @@ git clone https://github.com/tashfeenahmed/freellmapi.git
 cd freellmapi
 npm install
 npm run build
-# Clave con la que el router cifra las claves de los proveedores. Se queda en ~/freellmapi/.env (no en Nix).
 printf "ENCRYPTION_KEY=%s\nPORT=3001\n" "$(openssl rand -hex 32)" > .env
 chmod 600 .env
 
 # Como servicio de usuario, igual que Nix:
-cp ~/nix/despliegue/freellmapi.service ~/.config/systemd/user/
+cp ~/nix/despliegue/freellmapi/freellmapi.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now freellmapi
 journalctl --user -u freellmapi -f              # Ctrl+C para salir
-ss -ltnp | grep 3001                            # comprueba que escucha en el puerto 3001
+ss -ltn | grep 3001                             # comprueba que escucha en el puerto 3001
 ```
 
-Luego abre el panel del router en `http://192.168.1.50:3001` (o `http://localhost:3001` desde el servidor):
+**Abrir el panel desde el PC:** con un túnel SSH. En PowerShell del PC Windows:
+
+```powershell
+ssh -N -L 3001:127.0.0.1:3001 narchan@192.168.1.50
+```
+
+Déjalo abierto y entra en `http://localhost:3001` en el navegador del PC. Al cerrar la ventana (Ctrl+C) se
+cierra el túnel. Entonces:
 
 1. En **Keys**, añade las claves de los proveedores gratuitos que quieras usar.
    No conviene añadir la misma clave de Groq que usa Nix: el router gastaría el mismo límite por minuto

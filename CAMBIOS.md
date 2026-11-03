@@ -614,3 +614,15 @@ que no se pudo medir su latencia. Se midió:
 | `freellmapi` con el router apagado | 5/5 | 5 | 323 / 340 ms | 1228 / 1538 ms |
 
 Con el router apagado, la conexión se rechaza al instante y el respaldo no suma latencia apreciable.
+
+## Router solo en localhost (2026-11-03)
+Pedido: el `docker-compose.yml` del router publica el puerto solo en localhost, porque Docker se salta ufw.
+- `despliegue/freellmapi/docker-compose.yml` (nuevo): puerto `"127.0.0.1:3001:3001"`, fijo y sin variable. El
+  compose original admite `HOST_BIND=0.0.0.0`. También quité su servicio de actualización automática
+  (Watchtower), porque monta el socket de Docker. Añadí un tope de 512 MB de memoria.
+- `despliegue/freellmapi.service` pasó a `despliegue/freellmapi/freellmapi.service`.
+- README:
+  - dos formas de instalar el router: con Docker (con este compose) o sin Docker (Node 22, protegido por ufw);
+  - una línea `ss -ltn` para comprobar que solo escucha en `127.0.0.1:3001`;
+  - el panel se abre desde el PC con un túnel SSH (`ssh -N -L 3001:127.0.0.1:3001 ...`). Antes decía
+    `http://192.168.1.50:3001`, que daba por hecho que estaba abierto a la red.
