@@ -17,7 +17,7 @@ class ConexionFalsa:
         self.ultimo_uso = asyncio.get_event_loop().time()
         self.frases = []
 
-    async def pedir(self, texto):
+    async def pedir(self, texto, emocion="neutral"):
         if self.falla_antes:
             raise ConnectionError("cerrada por Microsoft")
         self.frases.append(texto)
@@ -72,7 +72,7 @@ async def test_sin_conexion_usa_el_respaldo():
     async def no_conecta():
         raise OSError("sin red")
 
-    async def respaldo(texto):
+    async def respaldo(texto, emocion="neutral"):
         yield b"respaldo"
 
     p = PoolEdge("v", conectar=no_conecta, respaldo=respaldo)

@@ -74,13 +74,15 @@ class ConexionEdge:
         self.ultimo_uso = time.monotonic()
         return self
 
-    async def pedir(self, texto: str) -> AsyncIterator[bytes]:
+    async def pedir(self, texto: str, emocion: str = "neutral") -> AsyncIterator[bytes]:
         """MP3 de una frase. Lanza ConnectionError si la conexión se cierra antes de terminar."""
         import aiohttp
         from edge_tts import communicate as c
         from edge_tts.data_classes import TTSConfig
         limpio = c.remove_incompatible_characters(texto) if hasattr(c, "remove_incompatible_characters") else texto
-        config = TTSConfig(self.voz, self.velocidad, "+0%", "+0Hz", "SentenceBoundary")
+        from server.pipeline.emocion import prosodia
+        rate, volume, pitch = prosodia(emocion).edge(self.velocidad)
+        config = TTSConfig(self.voz, rate, volume, pitch, "SentenceBoundary")
         await self.ws.send_str(c.ssml_headers_plus_data(c.connect_id(), c.date_to_string(),
                                                         c.mkssml(config, c.escape(limpio))))
         async for msg in self.ws:
@@ -110,7 +112,7 @@ class PoolEdge:
     def __init__(self, voz: str, velocidad: str = "+0%", tamano: int = 1, max_ocio_s: float = 12.0,
                  ventana_s: float = 300.0,
                  conectar: Optional[Callable[[], Awaitable]] = None,
-                 respaldo: Optional[Callable[[str], AsyncIterator[bytes]]] = None):
+                 respaldo: Optional[Callable[..., AsyncIterator[bytes]]] = None):
         self.tamano, self.max_ocio_s, self.ventana_s = tamano, max_ocio_s, ventana_s
         self.activo_hasta = 0.0
         self.conectar = conectar or (lambda: ConexionEdge(voz, velocidad).abrir())
@@ -120,7 +122,7 @@ class PoolEdge:
         self.tareas: set[asyncio.Task] = set()
         self.vigilante: Optional[asyncio.Task] = None
 
-    async def mp3(self, texto: str) -> AsyncIterator[bytes]:
+    async def mp3(self, texto: str, emocion: str = "neutral") -> AsyncIterator[bytes]:
         self._arrancar()
         conexion = self._tomar()
         self._reponer()
@@ -133,7 +135,7 @@ class PoolEdge:
                 break
             dio_audio = devuelta = False
             try:
-                async for datos in conexion.pedir(texto):
+                async for datos in conexion.pedir(texto, emocion):
                     dio_audio = True
                     yield datos
                 self._devolver(conexion)
@@ -151,7 +153,7 @@ class PoolEdge:
         if self.respaldo is None:
             raise ConnectionError("edge-tts no responde")
         log.info("🔈 edge-tts: uso la conexión normal (sin pool) para esta frase")
-        async for datos in self.respaldo(texto):
+        async for datos in self.respaldo(texto, emocion):
             yield datos
 
     def _tomar(self):

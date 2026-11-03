@@ -101,7 +101,7 @@ def mp3_de_prueba(segundos: float = 0.5) -> bytes:
 def tts_falso():
     mp3, pedidas = mp3_de_prueba(), []
 
-    async def fuente(texto):
+    async def fuente(texto, emocion="neutral"):
         pedidas.append(texto)
         for i in range(0, len(mp3), 1500):
             await asyncio.sleep(0)

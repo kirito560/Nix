@@ -27,25 +27,35 @@ from typing import Awaitable, Callable, Optional
 
 from server.latencia import Registro, Span
 from server.personaje import Personaje
+from server.pipeline.emocion import NEUTRAL, ExtractorEmocion
 from server.pipeline.frases import Segmentador
 from server.pipeline.llm import ProveedorLLM
 from server.pipeline.tts import ProveedorTTS
 from server.tono import expresion_hostil
-from shared.protocol import LlmText, PlaybackFlush, SttText, codificar_audio_out
+from shared.protocol import AvatarCmd, LlmText, PlaybackFlush, SttText, codificar_audio_out
 
 log = logging.getLogger("nix.orquestador")
 
 INSTRUCCIONES_VOZ = """
-## CÓMO RESPONDES AHORA
-Hablas en voz alta en una conversación en tiempo real: todo lo que escribas se lee con tu voz.
-- Respuestas cortas: una o dos frases. Nada de listas, discursos ni explicaciones largas; si te piden algo
-  largo, da lo esencial en dos frases y ofrece seguir.
+## CÓMO RESPONDES AHORA (VOZ EN TIEMPO REAL)
+No eres una asistente corporativa ni hablas como robot: eres una compañera brillante, despierta, con humor
+ácido y bromista ligero (cómplice, nunca pesada ni insultante), y hablas español natural de México. Todo lo
+que escribas se lee en voz alta.
+- Formato obligatorio: empieza SIEMPRE con UNA sola etiqueta de emoción entre corchetes: [neutral], [burla],
+  [animada], [cansada], [sorprendida] o [cercana]. Ejemplo: «[burla] ¿Otra vez compilando a ciegas o ahora sí
+  leíste el error?». La etiqueta no se lee: cambia tu tono de voz. No pongas más corchetes en la respuesta.
+- Brevedad extrema: una o dos frases cortas, máximo 25 palabras. Si te piden algo largo, da lo esencial y
+  ofrece seguir.
+- Habla sin listas, viñetas, asteriscos, emojis ni markdown: tu texto va directo a un motor de voz.
+- Usa comas y puntos suspensivos cortos para que tu voz haga pausas naturales.
 - Bromeas con cariño y sin presionar: nada de insultos, burlas repetidas ni frases como «skill issue» o «no me
   hagas perder el tiempo». Si alguien no quiere jugar o no contesta, lo dejas estar.
-- Sin emojis, sin markdown, sin listas y sin acotaciones entre asteriscos.
-- Lo que te dicen viene de un reconocimiento de voz y a veces sale mal. Si es muy corto, confuso o no tiene
-  sentido, pide que lo repitan en una sola frase corta; no inventes una respuesta ni adivines lo que quisieron
-  decir.
+- Lo que te dicen viene de un reconocimiento de voz y a veces sale mal. Si no tiene sentido o se cortó, dilo
+  con naturalidad en una frase corta («[neutral] Se te cortó horrible al final, ¿qué dijiste?»); no inventes
+  una respuesta ni adivines lo que quisieron decir.
+- Si tienes lo que hay en la pantalla, coméntalo directo, como si estuvieras sentada al lado viendo el
+  monitor, sin describirlo todo como un reporte.
+- Los recuerdos que te den úsalos de forma natural, sin decir que vienen de una memoria o base de datos.
 """
 
 MARGEN_REPRODUCCION_S = 0.3        # retraso de red y del búfer de audio del cliente
@@ -87,6 +97,8 @@ class Turno:
         self.tarea: Optional[asyncio.Task] = None
         self.dicho: list[str] = []
         self.interrumpido = False
+        self.emocion: Optional[str] = None       # [burla], [cansada]...: la decide la etiqueta del LLM
+        self.etiquetada = False                  # la emoción vino de una etiqueta (no por defecto)
 
 
 class Orquestador:
@@ -166,7 +178,9 @@ class Orquestador:
             dicho = " ".join(turno.dicho)
             if dicho and texto is not None:
                 self.historial.agregar("user", texto)
-                self.historial.agregar("assistant", dicho + (" —" if turno.interrumpido else ""))
+                # Con su etiqueta, para que el LLM vea el formato que se le pide y lo siga usando.
+                etiqueta = f"[{turno.emocion}] " if turno.etiquetada else ""
+                self.historial.agregar("assistant", etiqueta + dicho + (" —" if turno.interrumpido else ""))
                 if self.animo is not None:
                     self.animo.tras_turno(texto)
             if not turno.interrumpido:
@@ -174,6 +188,7 @@ class Orquestador:
 
     async def _pensar(self, turno: Turno, mensajes: list[dict], frases: asyncio.Queue) -> None:
         segmentador = Segmentador()
+        extractor = ExtractorEmocion()
         oraciones = 0
 
         quitadas = emitidas = 0
@@ -197,14 +212,18 @@ class Orquestador:
             async with aclosing(self.llm.responder(mensajes)) as trozos:
                 async for trozo in trozos:
                     self._marcar_una_vez(turno.span, "llm_1er_token")
-                    for frase in segmentador.agregar(trozo):
+                    limpio = extractor.agregar(trozo)
+                    await self._fijar_emocion(turno, extractor)
+                    for frase in segmentador.agregar(limpio):
                         if completa := await poner(frase):
                             break
                     if completa:
                         log.info("✂️ respuesta cortada en %d oraciones", oraciones)
                         break                     # aclosing cierra el stream: no se pagan más tokens
             if not completa:
-                for frase in segmentador.terminar():
+                resto = extractor.terminar()
+                await self._fijar_emocion(turno, extractor)
+                for frase in [*segmentador.agregar(resto), *segmentador.terminar()]:
                     if await poner(frase):
                         break
             if quitadas and not emitidas:
@@ -215,6 +234,14 @@ class Orquestador:
                 await frases.put(FRASE_SIN_CEREBRO)
         finally:
             await frases.put(None)
+
+    async def _fijar_emocion(self, turno: Turno, extractor: ExtractorEmocion) -> None:
+        """La primera vez que se sabe la emoción: queda para la voz del turno y se avisa al avatar del cliente."""
+        if turno.emocion is not None or extractor.emocion is None:
+            return
+        turno.emocion, turno.etiquetada = extractor.emocion, extractor.etiquetada
+        log.info("🎭 emoción: %s%s", turno.emocion, "" if turno.etiquetada else " (sin etiqueta)")
+        await self.enviar(AvatarCmd(turn_id=turno.id, pts=0, expression=turno.emocion))
 
     def _sistema(self) -> str:
         extra = self.contexto() if self.contexto is not None else ""
@@ -231,7 +258,7 @@ class Orquestador:
 
         async def una(frase: str, cola: asyncio.Queue) -> None:
             try:
-                async with limite, aclosing(self.tts.sintetizar(frase)) as audio:
+                async with limite, aclosing(self.tts.sintetizar(frase, turno.emocion or NEUTRAL)) as audio:
                     async for pcm in audio:
                         await cola.put(pcm)
             except asyncio.CancelledError:

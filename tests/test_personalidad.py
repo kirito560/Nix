@@ -224,7 +224,8 @@ def test_el_animo_solo_cambia_el_texto_del_tono():
     for _ in range(6):
         a.tras_turno("no sirves", ahora=0.0)
     texto = a.para_llm(0)
-    assert "poca paciencia" in texto and "amable" in texto and "no lo menciones" in texto
+    assert "poca paciencia" in texto and "amable" in texto and "no los menciones" in texto
+    assert "Paciencia: 22/100" in texto and "Energía: 70/100" in texto
 
 
 async def test_cada_respuesta_ajusta_el_animo():

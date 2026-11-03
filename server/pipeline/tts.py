@@ -1,6 +1,7 @@
 """
-Voz (TTS) detrás de una interfaz común: `sintetizar(texto)` devuelve PCM16 mono a `sample_rate` en trozos,
-a medida que se genera.
+Voz (TTS) detrás de una interfaz común: `sintetizar(texto, emocion)` devuelve PCM16 mono a `sample_rate` en
+trozos, a medida que se genera. La emoción ([burla], [cansada]...) cambia rate, pitch y volume de la voz
+(server/pipeline/emocion.py).
 
   - TTSEdge: edge-tts (voces neuronales de Microsoft Edge, sin clave). Entrega MP3 de 24 kHz en trozos
     mientras sintetiza; un proceso de ffmpeg los decodifica a PCM sobre la marcha, así el primer audio sale sin
@@ -25,6 +26,7 @@ from typing import AsyncIterator, Callable, Optional
 import numpy as np
 
 from server.config import ConfigServidor
+from server.pipeline.emocion import NEUTRAL, prosodia
 
 log = logging.getLogger("nix.tts")
 
@@ -39,7 +41,7 @@ class ProveedorTTS(abc.ABC):
     sample_rate: int = SR_SALIDA
 
     @abc.abstractmethod
-    def sintetizar(self, texto: str) -> AsyncIterator[bytes]: ...
+    def sintetizar(self, texto: str, emocion: str = NEUTRAL) -> AsyncIterator[bytes]: ...
 
     async def calentar(self) -> None:
         """Deja listo lo que se pueda antes del primer turno (conexiones)."""
@@ -54,7 +56,7 @@ class TTSStub(ProveedorTTS):
     def __init__(self, s_por_caracter: float = 0.05, maximo_s: float = 4.0):
         self.s_por_caracter, self.maximo_s = s_por_caracter, maximo_s
 
-    async def sintetizar(self, texto: str) -> AsyncIterator[bytes]:
+    async def sintetizar(self, texto: str, emocion: str = NEUTRAL) -> AsyncIterator[bytes]:
         segundos = min(self.maximo_s, max(0.2, len(texto) * self.s_por_caracter))
         t = np.arange(int(self.sample_rate * segundos)) / self.sample_rate
         pcm = (0.05 * np.sin(2 * np.pi * 330 * t) * 32767).astype("<i2").tobytes()
@@ -63,10 +65,11 @@ class TTSStub(ProveedorTTS):
             yield pcm[i:i + BYTES_TROZO]
 
 
-def _mp3_de_edge(voz: str, velocidad: str) -> Callable[[str], AsyncIterator[bytes]]:
-    async def fuente(texto: str) -> AsyncIterator[bytes]:
+def _mp3_de_edge(voz: str, velocidad: str) -> Callable[..., AsyncIterator[bytes]]:
+    async def fuente(texto: str, emocion: str = NEUTRAL) -> AsyncIterator[bytes]:
         import edge_tts
-        async for parte in edge_tts.Communicate(texto, voz, rate=velocidad).stream():
+        rate, volume, pitch = prosodia(emocion).edge(velocidad)
+        async for parte in edge_tts.Communicate(texto, voz, rate=rate, volume=volume, pitch=pitch).stream():
             if parte["type"] == "audio":
                 yield parte["data"]
     return fuente
@@ -76,12 +79,12 @@ class TTSEdge(ProveedorTTS):
     nombre = "edge"
 
     def __init__(self, voz: str, velocidad: str = "+0%",
-                 fuente_mp3: Optional[Callable[[str], AsyncIterator[bytes]]] = None, pool=None):
+                 fuente_mp3: Optional[Callable[..., AsyncIterator[bytes]]] = None, pool=None):
         self.voz, self.pool = voz, pool
         self.fuente_mp3 = fuente_mp3 or (pool.mp3 if pool is not None else _mp3_de_edge(voz, velocidad))
         self.reserva: Optional[asyncio.subprocess.Process] = None      # un ffmpeg ya arrancado
         self.reponiendo: set[asyncio.Task] = set()
-        self.cache: OrderedDict[str, bytes] = OrderedDict()          # frase corta -> PCM (LRU)
+        self.cache: OrderedDict[tuple[str, str], bytes] = OrderedDict()   # (emoción, frase corta) -> PCM (LRU)
         self.aciertos = 0
 
     async def calentar(self) -> None:
@@ -126,16 +129,16 @@ class TTSEdge(ProveedorTTS):
         self.reponiendo.add(tarea)
         tarea.add_done_callback(self.reponiendo.discard)
 
-    async def sintetizar(self, texto: str) -> AsyncIterator[bytes]:
-        clave = " ".join(texto.split())
+    async def sintetizar(self, texto: str, emocion: str = NEUTRAL) -> AsyncIterator[bytes]:
+        clave = (emocion, " ".join(texto.split()))
         if (pcm := self.cache.get(clave)) is not None:
             self.cache.move_to_end(clave)
             self.aciertos += 1
             for i in range(0, len(pcm), BYTES_TROZO):
                 yield pcm[i:i + BYTES_TROZO]
             return
-        guardar = [] if len(clave) <= CACHE_MAX_CARACTERES else None
-        async for datos in self._sintetizar(texto):
+        guardar = [] if len(clave[1]) <= CACHE_MAX_CARACTERES else None
+        async for datos in self._sintetizar(texto, emocion):
             if guardar is not None:
                 guardar.append(datos)
             yield datos
@@ -144,25 +147,27 @@ class TTSEdge(ProveedorTTS):
             while len(self.cache) > CACHE_MAX_FRASES:
                 self.cache.popitem(last=False)
 
-    async def precargar(self, frases: list[str]) -> None:
-        """Sintetiza de antemano frases que se dicen a menudo, para que salgan de la caché al instante."""
-        for frase in frases:
-            if " ".join(frase.split()) in self.cache:
-                continue
-            try:
-                async for _ in self.sintetizar(frase):
-                    pass
-            except Exception as e:  # noqa: BLE001 - sin red: ya se sintetizarán en su momento
-                log.debug("🔈 no pude precargar %r: %s", frase, e)
-                return
+    async def precargar(self, frases: list[str], emociones: tuple[str, ...] = (NEUTRAL,)) -> None:
+        """Sintetiza de antemano frases que se dicen a menudo (con cada emoción), para que salgan de la caché al
+        instante."""
+        for emocion in emociones:
+            for frase in frases:
+                if (emocion, " ".join(frase.split())) in self.cache:
+                    continue
+                try:
+                    async for _ in self.sintetizar(frase, emocion):
+                        pass
+                except Exception as e:  # noqa: BLE001 - sin red: ya se sintetizarán en su momento
+                    log.debug("🔈 no pude precargar %r: %s", frase, e)
+                    return
         log.info("🔈 %d frases frecuentes listas en la caché de voz", len(self.cache))
 
-    async def _sintetizar(self, texto: str) -> AsyncIterator[bytes]:
+    async def _sintetizar(self, texto: str, emocion: str = NEUTRAL) -> AsyncIterator[bytes]:
         proc = await self._tomar_ffmpeg()
 
         async def alimentar() -> None:
             try:
-                async for mp3 in self.fuente_mp3(texto):
+                async for mp3 in self.fuente_mp3(texto, emocion):
                     proc.stdin.write(mp3)
                     await proc.stdin.drain()
             finally:

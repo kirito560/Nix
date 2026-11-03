@@ -22,7 +22,12 @@ trap restaurar EXIT
 systemctl --user set-environment LLM_PROVEEDOR="$PROVEEDOR"
 desde=$(date '+%Y-%m-%d %H:%M:%S')
 systemctl --user restart nix.service
-sleep 12                                         # carga del VAD, voz precargada y conexiones listas
+# Espera a que la caché de voz esté llena (dos líneas «caché de voz»: frases fijas y aperturas con cada emoción).
+for _ in $(seq 120); do
+    [ "$(journalctl --user -u nix.service --since "$desde" --no-pager -o cat | grep -c 'caché de voz')" -ge 2 ] && break
+    sleep 1
+done
+sleep 2
 
 ETIQUETA=${PROVEEDOR}_$(date +%Y%m%d_%H%M%S)
 echo "== midiendo $TURNOS turnos con LLM_PROVEEDOR=$PROVEEDOR (unos $((TURNOS * 20 / 60 + 1)) minutos)"
@@ -35,6 +40,7 @@ journalctl --user -u nix.service --since "$desde" --no-pager -o cat > "$LOG"
 echo "== proveedor: $(grep -m1 '🧠 LLM:' "$LOG" | sed -E 's/.*🧠 LLM: ([^|]*).*/\1/')"
 echo "== turnos entendidos: $(grep -c '🗣️ usuario' "$LOG")   descartados: $(grep -c '🙉' "$LOG" || true)"
 echo "== RESPALDO: $(grep -c RESPALDO "$LOG" || true)   sin respuesta del LLM: $(grep -c '❌ el LLM' "$LOG" || true)"
+echo "== emociones:"; grep -o '🎭 emoción: .*' "$LOG" | sort | uniq -c || true
 if [ "$PROVEEDOR" = freellmapi ]; then
     echo "== modelos que eligió el router:"; grep -o 'el router eligió .*' "$LOG" | sort | uniq -c || true
 fi

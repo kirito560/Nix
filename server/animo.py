@@ -80,11 +80,19 @@ class Animo:
 
     def para_llm(self, ahora: Optional[float] = None) -> str:
         v = self.actuales(ahora)
-        energia = ("con mucha energía" if v["energia"] >= 0.66 else
-                   "más tranquila y pausada" if v["energia"] <= 0.33 else "con energía normal")
-        paciencia = ("paciente" if v["paciencia"] >= 0.5 else
-                     "con poca paciencia: contesta más breve, pero siempre amable y sin reclamar")
-        cercania = ("cercana y cariñosa" if v["cercania"] >= 0.66 else
-                    "un poco más reservada" if v["cercania"] <= 0.33 else "amistosa")
-        return (f"Tu ánimo ahora (solo cambia tu tono; no lo menciones): {energia}, {paciencia}, {cercania}. "
-                f"[energía {v['energia']:.2f}, paciencia {v['paciencia']:.2f}, cercanía {v['cercania']:.2f}]")
+        energia, paciencia, cercania = (round(v[k] * 100) for k in ("energia", "paciencia", "cercania"))
+        tono = []
+        if v["energia"] <= 0.33:
+            tono.append("energía baja: más tranquila y pausada")
+        elif v["energia"] >= 0.66:
+            tono.append("con mucha energía")
+        if v["paciencia"] < 0.5:
+            tono.append("poca paciencia: más seca o sarcástica y más breve, pero siempre amable, nunca pesada")
+        else:
+            tono.append("paciente")
+        if v["cercania"] >= 0.66:
+            tono.append("cercanía alta: más cálida y cómplice")
+        elif v["cercania"] <= 0.33:
+            tono.append("un poco más reservada")
+        return (f"Estado actual -> Energía: {energia}/100 | Paciencia: {paciencia}/100 | Cercanía: {cercania}/100. "
+                f"Deja que estos números tiñan tu tono ({', '.join(tono)}); no los menciones.")

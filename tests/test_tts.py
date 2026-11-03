@@ -20,7 +20,7 @@ async def test_edge_decodifica_el_mp3_en_streaming():
     mp3 = subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
                           "-ar", "24000", "-ac", "1", "-f", "mp3", "pipe:1"], capture_output=True, check=True).stdout
 
-    async def fuente(_texto):
+    async def fuente(_texto, _emocion="neutral"):
         for i in range(0, len(mp3), 2000):
             await asyncio.sleep(0)
             yield mp3[i:i + 2000]
@@ -33,7 +33,7 @@ async def test_edge_decodifica_el_mp3_en_streaming():
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="falta ffmpeg")
 async def test_edge_propaga_errores_de_la_fuente():
-    async def rota(_texto):
+    async def rota(_texto, _emocion="neutral"):
         raise ConnectionError("sin internet")
         yield b""
 

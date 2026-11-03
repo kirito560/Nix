@@ -17,6 +17,7 @@ from server.orquestador import (FRASE_NO_ENTENDI, FRASE_SIN_CEREBRO, FRASE_SUAVE
 from server.personaje import cargar_personaje
 from server.pipeline import groq_http
 from server.pipeline.escucha import Escucha
+from server.pipeline.emocion import EMOCIONES
 from server.pipeline.llm import crear_llm
 from server.pipeline.stt import crear_stt
 from server.pipeline.tts import crear_tts
@@ -67,8 +68,11 @@ async def principal() -> None:
 
     gateway = Gateway(cfg, crear_escucha, personaje.nombre, al_conectar=preparar, vista=vista)
     if hasattr(tts, "precargar"):
-        asyncio.create_task(tts.precargar([FRASE_NO_ENTENDI, FRASE_SIN_CEREBRO, FRASE_SUAVE, *FRASES_FRECUENTES]),
-                            name="precargar-voz")
+        async def precargar_voz() -> None:
+            # Las frases fijas se dicen en tono neutral; las aperturas, con cualquier emoción.
+            await tts.precargar([FRASE_NO_ENTENDI, FRASE_SIN_CEREBRO, FRASE_SUAVE])
+            await tts.precargar(FRASES_FRECUENTES, EMOCIONES)
+        asyncio.create_task(precargar_voz(), name="precargar-voz")
     calentador = asyncio.create_task(mantener_listo(cfg, gateway, tts), name="mantener-listo")
     parar = asyncio.Event()
     for senal in (signal.SIGINT, signal.SIGTERM):
