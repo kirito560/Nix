@@ -1,0 +1,22 @@
+# Servicio de usuario del router de LLM local (freellmapi), opcional: solo para LLM_PROVEEDOR=freellmapi.
+# Instalar (ver README.md, «Router de LLM local»):
+#            cp ~/nix/despliegue/freellmapi.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+#            systemctl --user enable --now freellmapi
+# Registro:  journalctl --user -u freellmapi -f
+[Unit]
+Description=freellmapi: router local de LLM compatible con OpenAI (para Nix)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/freellmapi
+Environment=NODE_ENV=production
+# ENCRYPTION_KEY y PORT están en ~/freellmapi/.env (fuera de este repositorio).
+EnvironmentFile=%h/freellmapi/.env
+ExecStart=/usr/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=10
+# Que un fallo del router no se lleve al servidor de Minecraft por delante.
+MemoryMax=512M
+
+[Install]
+WantedBy=default.target

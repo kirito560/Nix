@@ -20,6 +20,7 @@ shared/      protocolo de mensajes (pydantic), autenticación HMAC, lectura del 
 server/      gateway WebSocket, VAD Silero, STT, LLM, TTS, orquestador, latencias, personajes, juegos
 client/      micrófono o WAV, altavoces, conexión con el servidor
 personajes/  fichas de personaje (nix.md, narwell.md)
+despliegue/  servicios de systemd y medir/ (medidor de latencia de turno a turno)
 tests/       pytest
 ```
 
@@ -241,6 +242,8 @@ micrófono → VAD → STT (Groq Whisper) → LLM (Groq, streaming) → frases �
 - **Si Qwen llega a su límite de uso** (429: la cuenta gratuita de Groq admite ~5 turnos por minuto) o Groq no tiene
   capacidad (498/503), ese turno lo responde el modelo de respaldo (`LLM_MODELO_RESPALDO`, gpt-oss) sin que se
   note; el siguiente vuelve a Qwen. En el log: `journalctl --user -u nix | grep RESPALDO`.
+- **Router de LLM local (opcional):** con `LLM_PROVEEDOR=freellmapi` el LLM pasa por freellmapi y, si falla,
+  responde Groq directo. Ver «Router de LLM local (freellmapi)».
 - **Si Groq falla** (en la transcripción, o en el LLM y también en el respaldo), dice «Uy, se me trabó el cerebro,
   ¿me lo repites?» en vez de quedarse callada, y sigue escuchando.
 - **El cliente se reconecta solo** si se corta la conexión (1, 2, 4, 8 y luego 10 s entre intentos).
@@ -407,6 +410,99 @@ journalctl --user -u nix -f | grep --line-buffered "⏱️"          # cada turn
 | **total** | **1495 / 2936 ms** | **1268 / 1551 ms** |
 
 Groq varía ±150 ms de una medición a otra. Por qué no baja de ~1,2 s: ver `ESTADO.md`.
+
+### Medir 20 turnos con un proveedor
+
+`despliegue/medir/medir_turnos.sh` reinicia Nix con el proveedor de LLM que le digas, le manda un WAV de
+frases habladas (voz sintética, con pausas a media frase) como si fuera el PC y resume el log: p50/p95 por
+etapa, cuántas veces hubo RESPALDO y, con el router, qué modelos eligió. No toca el `.env`: el proveedor se pasa
+al servicio solo durante la medición, y al terminar Nix vuelve a lo que diga el `.env`.
+
+```bash
+cd ~/nix
+despliegue/medir/medir_turnos.sh groq 20          # ~7 minutos
+despliegue/medir/medir_turnos.sh freellmapi 20    # necesita FREELLMAPI_URL y FREELLMAPI_CLAVE en el .env
+```
+
+Los WAV y los logs quedan en `~/.cache/nix-medir/`. Mientras mide, no le hables a Nix desde el PC.
+
+## Router de LLM local (freellmapi)
+
+Opcional. [freellmapi](https://github.com/tashfeenahmed/freellmapi) es un router que corre en el servidor y
+junta varias cuentas gratuitas de LLM (Google, Cerebras, Mistral, OpenRouter, Groq...) detrás de una sola
+dirección compatible con OpenAI. Nix le pide `model="auto"` y el router elige el modelo de cada turno.
+
+- **Por defecto Nix sigue usando Groq directo.** El router solo se usa con `LLM_PROVEEDOR=freellmapi`.
+- **Si el router falla** (no está encendido, 429, error 5xx o tarda más de `FREELLMAPI_ESPERA_S` segundos en
+  dar la primera palabra), ese turno lo responde Groq directo y en el log sale `RESPALDO`. El turno
+  siguiente vuelve a probar el router.
+- Si el router ya empezó a responder y se corta a media frase, no se cambia a Groq: Nix dice lo que alcanzó
+  a decir, igual que con Groq.
+
+### Instalarlo en el servidor (sin Docker)
+
+El servidor ya tiene Node 22 (el router pide Node 20 o más).
+
+```bash
+cd ~
+git clone https://github.com/tashfeenahmed/freellmapi.git
+cd freellmapi
+npm install
+npm run build
+# Clave con la que el router cifra las claves de los proveedores. Se queda en ~/freellmapi/.env (no en Nix).
+printf "ENCRYPTION_KEY=%s\nPORT=3001\n" "$(openssl rand -hex 32)" > .env
+chmod 600 .env
+
+# Como servicio de usuario, igual que Nix:
+cp ~/nix/despliegue/freellmapi.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now freellmapi
+journalctl --user -u freellmapi -f              # Ctrl+C para salir
+ss -ltnp | grep 3001                            # comprueba que escucha en el puerto 3001
+```
+
+Luego abre el panel del router en `http://192.168.1.50:3001` (o `http://localhost:3001` desde el servidor):
+
+1. En **Keys**, añade las claves de los proveedores gratuitos que quieras usar.
+   No conviene añadir la misma clave de Groq que usa Nix: el router gastaría el mismo límite por minuto
+   y, cuando se agote, también fallará el respaldo.
+2. Copia la **clave unificada** que sale arriba en la página **Keys** (empieza por `freellmapi-`).
+
+### Activarlo en Nix
+
+En `~/nix/.env` (nunca en el código):
+
+```bash
+LLM_PROVEEDOR=freellmapi
+FREELLMAPI_URL=http://127.0.0.1:3001/v1
+FREELLMAPI_CLAVE=freellmapi-...        # la clave unificada del panel
+# Opcional: segundos máximos hasta la primera palabra del router (por defecto 4); después responde Groq.
+FREELLMAPI_ESPERA_S=4
+```
+
+```bash
+uv pip install --python .venv -r requirements-server.txt     # instala la librería openai
+systemctl --user restart nix
+journalctl --user -u nix -f | grep --line-buffered -E "🧠|RESPALDO|⏱️ acumulado"
+```
+
+Al arrancar, el log dice `🧠 LLM: freellmapi (model=auto en ...; respaldo: Groq ...)`, y en cada turno
+`🧠 el router eligió <modelo>`. Para volver a Groq directo, quita `LLM_PROVEEDOR=freellmapi`
+(o pon `auto`) y reinicia Nix.
+
+### Comparar la latencia de los dos
+
+Con el router encendido y configurado, mide 20 turnos con cada uno y compara la línea
+`stt_final→llm_1er_token` (lo que tarda el LLM en empezar) y el `total`:
+
+```bash
+cd ~/nix
+despliegue/medir/medir_turnos.sh groq 20
+despliegue/medir/medir_turnos.sh freellmapi 20
+```
+
+Las demás etapas (VAD, Whisper, voz) no dependen del LLM, así que deberían salir iguales. Si con el router
+sale mucho `RESPALDO`, sus turnos cuentan el tiempo perdido con el router más lo que tarda Groq.
 
 ## Proveedores de voz a texto (STT)
 
