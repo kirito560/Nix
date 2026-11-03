@@ -14,9 +14,12 @@ o «!», sin puntos suspensivos y con 2 palabras o más) y no hubo más voz, el 
 esperar el resto del silencio del VAD. Cada turno registra cuándo se pidió y cuándo llegó el adelanto («⏩»),
 para ver qué etapa decide de verdad cuándo empieza la respuesta.
 
-Barge-in: si la frase empieza mientras el personaje habla, solo cuenta cuando junta BARGE_MIN_VOZ_MS de
-voz; entonces se interrumpe al personaje y la frase sigue como cualquier otra. Si termina antes, se toma
-por eco de su propia voz (o ruido) y se descarta sin transcribirla.
+Frases mientras el personaje habla: solo cuentan cuando juntan BARGE_MIN_VOZ_MS de voz; si terminan antes,
+se toman por eco de su propia voz (o ruido) y se descartan sin transcribirlas.
+  - BARGE_IN=1: se interrumpe al personaje y la frase sigue como cualquier otra.
+  - BARGE_IN=0: no se le interrumpe, pero la frase NO se pierde: se transcribe y se responde en cuanto ella
+    termina de hablar (o en cuanto el cliente la calla con barge.in). Si el texto es casi igual a lo que ella
+    estaba diciendo, era su propio eco y se descarta.
 """
 from __future__ import annotations
 
@@ -31,11 +34,26 @@ from server.orquestador import FRASE_NO_ENTENDI, FRASE_SIN_CEREBRO
 from server.pipeline.filtros_whisper import es_texto_vacio, poco_claro
 from server.pipeline.stt import ProveedorSTT, a_pcm16
 from server.pipeline.vad import DetectorVoz, Reagrupador
+from shared.texto import normalizar
 
 if TYPE_CHECKING:
     from server.orquestador import Orquestador
 
 log = logging.getLogger("nix.escucha")
+
+
+ESPERA_MAX_S = 60.0          # lo más que una frase espera a que el personaje termine de hablar
+UMBRAL_ECO = 0.6             # fracción de palabras que ya estaban en lo que ella decía
+
+
+def es_eco(texto: str, dicho: str) -> bool:
+    """¿La transcripción es su propia voz que volvió por el micrófono? Casi todas sus palabras están en lo que
+    ella estaba diciendo."""
+    palabras = normalizar(texto).split()
+    if len(palabras) < 2 or not dicho:
+        return False
+    suyas = set(normalizar(dicho).split())
+    return sum(p in suyas for p in palabras) / len(palabras) >= UMBRAL_ECO
 
 
 def frase_completa(texto: str | None) -> bool:
@@ -72,7 +90,7 @@ class Escucha:
             self.pendiente_de_barge = self.orquestador.hablando
             self.cola = asyncio.Queue()
             self.cola.put_nowait(a_pcm16(ev.audio))
-            self._lanzar(self._frase(self.cola, str(uuid.uuid4())), "frase")
+            self._lanzar(self._frase(self.cola, str(uuid.uuid4()), self.pendiente_de_barge), "frase")
         elif ev.tipo == "voz" and self.cola is not None:
             self.cola.put_nowait(a_pcm16(ev.audio))
             d = self.detector
@@ -85,8 +103,7 @@ class Escucha:
                 if self.barge_in:
                     self._lanzar(self.orquestador.interrumpir("barge-in"), "barge-in")
                 else:
-                    self.cola.put_nowait(("descartada", 0.0, 0.0))      # sin barge-in: no se le interrumpe
-                    self.cola = None
+                    log.info("⏳ hablas mientras ella habla: tu frase se responde cuando termine")
         elif ev.tipo in ("fin", "descartada") and self.cola is not None:
             if self.pendiente_de_barge:
                 log.info("🔇 frase durante su voz, demasiado corta para interrumpir: la tomo por eco")
@@ -94,6 +111,20 @@ class Escucha:
             self.pendiente_de_barge = False
             self.cola.put_nowait((ev.tipo, ev.t_ultima_voz, time.monotonic()))
             self.cola = None
+
+    async def _en_cola(self, turno: str, texto: str, span: Span) -> None:
+        """Frase dicha mientras ella hablaba (BARGE_IN=0): se responde cuando termine, salvo que sea su eco."""
+        if es_eco(texto, self.orquestador.ultimo_dicho):
+            log.info("🔇 era su propia voz (eco), no la respondo: %s", texto)
+            return
+        log.info("🗣️ usuario (mientras ella hablaba): %s", texto)
+        inicio = time.monotonic()
+        while self.orquestador.hablando and time.monotonic() - inicio < ESPERA_MAX_S:
+            await asyncio.sleep(0.05)
+        if time.monotonic() - inicio > 0.05:
+            log.info("⏳ respondo tu frase tras esperar %.1f s a que terminara", time.monotonic() - inicio)
+        # No cuenta para la latencia: esperó a propósito.
+        await self.orquestador.al_texto_usuario(turno, texto, span, medir=False)
 
     def _vigilar_adelanto(self, sesion, cola: asyncio.Queue, t_voz: float, tiempos: dict) -> None:
         tiempos.clear()
@@ -132,7 +163,7 @@ class Escucha:
         self.tareas.add(tarea)
         tarea.add_done_callback(self.tareas.discard)
 
-    async def _frase(self, cola: asyncio.Queue, turno: str) -> None:
+    async def _frase(self, cola: asyncio.Queue, turno: str, durante_su_voz: bool = False) -> None:
         try:
             sesion = await self.stt.abrir()
         except Exception:
@@ -179,6 +210,9 @@ class Escucha:
                 if (motivo := poco_claro(resultado.texto)) is not None:
                     log.info("🙉 %s: pido que lo repita", motivo)
                     await self.orquestador.decir(turno, FRASE_NO_ENTENDI)
+                    return
+                if durante_su_voz and not self.barge_in:
+                    await self._en_cola(turno, resultado.texto, span)
                     return
                 log.info("🗣️ usuario: %s", resultado.texto)
                 await self.orquestador.al_texto_usuario(turno, resultado.texto, span)

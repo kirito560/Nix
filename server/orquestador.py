@@ -59,6 +59,7 @@ que escribas se lee en voz alta.
 """
 
 MARGEN_REPRODUCCION_S = 0.3        # retraso de red y del búfer de audio del cliente
+RETRASO_PC_MS = 100                 # lo que tarda el primer audio en empezar a sonar en el PC (estimación)
 # Si el LLM falla antes de decir nada (sin internet, límite de Groq...), que no se quede callada sin más.
 FRASE_SIN_CEREBRO = "Uy, se me trabó el cerebro, ¿me lo repites?"
 # Si se oyó voz pero la transcripción no es fiable, mejor pedir que lo repitan que responder a algo inventado.
@@ -70,6 +71,23 @@ FRASES_FRECUENTES = ["¡Claro!", "Uy,", "Jaja,", "Mira,", "Oye,", "¡Obvio!", "�
 FIN_DE_ORACION = (".", "!", "?", "…")
 # Si el filtro de tono quitó todo lo que iba a decir, algo amable en vez de quedarse callada.
 FRASE_SUAVE = "Jaja, va, ¿en qué estábamos?"
+
+
+def lo_que_sono(frases_pts: list[tuple[int, int, str]], ms: float) -> str:
+    """Las frases que sonaron hasta `ms` (la que se cortó, solo en proporción) y « —» si quedó algo sin decir."""
+    partes = []
+    for inicio, fin, frase in frases_pts:
+        if ms >= fin:
+            partes.append(frase)
+            continue
+        if ms > inicio and fin > inicio:
+            palabras = frase.split()
+            n = max(1, round(len(palabras) * (ms - inicio) / (fin - inicio)))
+            partes.append(" ".join(palabras[:n]))
+        break
+    else:
+        return " ".join(partes)
+    return (" ".join(partes) + " —").strip() if partes else ""
 
 
 def prompt_sistema(personaje: Personaje) -> str:
@@ -97,6 +115,9 @@ class Turno:
         self.tarea: Optional[asyncio.Task] = None
         self.dicho: list[str] = []
         self.interrumpido = False
+        self.frases_pts: list[tuple[int, int, str]] = []   # (inicio, fin) de cada frase en su audio, en ms
+        self.t_audio0: Optional[float] = None    # cuándo se mandó el primer audio (empieza a sonar en el PC)
+        self.en_historial: Optional[dict] = None  # su mensaje en el historial (se corrige con playback.ack)
         self.emocion: Optional[str] = None       # [burla], [cansada]...: la decide la etiqueta del LLM
         self.etiquetada = False                  # la emoción vino de una etiqueta (no por defecto)
 
@@ -112,6 +133,7 @@ class Orquestador:
         self.animo = animo                       # server.animo.Animo: se ajusta después de cada respuesta
         self.sistema = prompt_sistema(personaje)
         self.turno: Optional[Turno] = None
+        self.ultimo_interrumpido: Optional[Turno] = None
         self.fin_reproduccion = 0.0
 
     @property
@@ -119,12 +141,13 @@ class Orquestador:
         activo = self.turno is not None and self.turno.tarea is not None and not self.turno.tarea.done()
         return activo or time.monotonic() < self.fin_reproduccion
 
-    async def al_texto_usuario(self, turn_id: str, texto: str, span: Span) -> None:
-        """Llamado por la Escucha con cada frase reconocida."""
+    async def al_texto_usuario(self, turn_id: str, texto: str, span: Span, medir: bool = True) -> None:
+        """Llamado por la Escucha con cada frase reconocida. medir=False: no cuenta para la latencia (una frase
+        que esperó a que ella terminara de hablar)."""
         if self.hablando:
             await self.interrumpir("nueva frase del usuario")
         await self.enviar(SttText(turn_id=turn_id, texto=texto))
-        turno = Turno(turn_id, span)
+        turno = Turno(turn_id, span, medir=medir)
         turno.tarea = asyncio.create_task(self._turno(turno, texto), name=f"turno-{turn_id[:8]}")
         self.turno = turno
 
@@ -137,12 +160,39 @@ class Orquestador:
         turno.tarea = asyncio.create_task(self._turno(turno, None, fija=frase), name=f"aviso-{turn_id[:8]}")
         self.turno = turno
 
+    @property
+    def ultimo_dicho(self) -> str:
+        """Lo que mandó a decir en el turno actual (o el último): para reconocer el eco de su propia voz."""
+        return " ".join(self.turno.dicho) if self.turno is not None else ""
+
+    def oido(self, turn_id: str, pts_played: int) -> None:
+        """playback.ack del cliente: cuánto sonó de verdad. Corrige su mensaje en el historial. Puede llegar
+        cuando ya empezó el turno siguiente, por eso se busca en el último turno interrumpido."""
+        turno = self.ultimo_interrumpido
+        if turno is None or turno.id != turn_id or not turno.interrumpido or turno.en_historial is None:
+            return
+        dicho = lo_que_sono(turno.frases_pts, pts_played) or "—"
+        turno.en_historial["content"] = self._etiqueta(turno) + dicho
+        log.info("✋ sonó %d ms de su respuesta: «%s»", pts_played, dicho)
+
+    @staticmethod
+    def _etiqueta(turno: Turno) -> str:
+        # Con su etiqueta, para que el LLM vea el formato que se le pide y lo siga usando.
+        return f"[{turno.emocion}] " if turno.etiquetada else ""
+
+    @staticmethod
+    def _sonado_estimado_ms(turno: Turno) -> float:
+        if turno.t_audio0 is None:
+            return 0.0
+        return (time.monotonic() - turno.t_audio0) * 1000 - RETRASO_PC_MS
+
     async def interrumpir(self, motivo: str) -> None:
         turno, self.fin_reproduccion = self.turno, 0.0
         if turno is None:
             return
         log.info("✋ interrumpida (%s)", motivo)
         turno.interrumpido = True
+        self.ultimo_interrumpido = turno
         if turno.tarea is not None and not turno.tarea.done():
             turno.tarea.cancel()
             await asyncio.gather(turno.tarea, return_exceptions=True)
@@ -175,12 +225,15 @@ class Orquestador:
             for t in tareas:
                 t.cancel()
             await asyncio.gather(*tareas, return_exceptions=True)
-            dicho = " ".join(turno.dicho)
+            if turno.interrumpido and turno.frases_pts:
+                # Solo lo que alcanzó a sonar (estimado por el reloj; playback.ack lo corrige con el dato del PC).
+                dicho = lo_que_sono(turno.frases_pts, self._sonado_estimado_ms(turno)) or "—"
+            else:
+                dicho = " ".join(turno.dicho) + (" —" if turno.interrumpido and turno.dicho else "")
             if dicho and texto is not None:
                 self.historial.agregar("user", texto)
-                # Con su etiqueta, para que el LLM vea el formato que se le pide y lo siga usando.
-                etiqueta = f"[{turno.emocion}] " if turno.etiquetada else ""
-                self.historial.agregar("assistant", etiqueta + dicho + (" —" if turno.interrumpido else ""))
+                self.historial.agregar("assistant", self._etiqueta(turno) + dicho)
+                turno.en_historial = self.historial.mensajes[-1]
                 if self.animo is not None:
                     self.animo.tras_turno(texto)
             if not turno.interrumpido:
@@ -288,7 +341,10 @@ class Orquestador:
             await self.enviar(LlmText(turn_id=turno.id, texto=frase))
             turno.dicho.append(frase)
             log.info("🤖 %s: %s", self.personaje.nombre, frase)
+            inicio = pts_ms
             while (pcm := await cola.get()) is not None:
+                if turno.t_audio0 is None:
+                    turno.t_audio0 = time.monotonic()
                 self._marcar_una_vez(turno.span, "tts_1er_audio")
                 await self.enviar(codificar_audio_out(turno.id, pts_ms, self.tts.sample_rate, pcm))
                 if turno.medir and "audio_enviado" not in dict(turno.span.marcas):
@@ -297,6 +353,7 @@ class Orquestador:
                 duracion_s = len(pcm) / 2 / self.tts.sample_rate
                 pts_ms += round(duracion_s * 1000)
                 self.fin_reproduccion = max(self.fin_reproduccion, time.monotonic()) + duracion_s
+            turno.frases_pts.append((inicio, pts_ms, frase))
         self.fin_reproduccion += MARGEN_REPRODUCCION_S if self.fin_reproduccion else 0.0
 
     @staticmethod

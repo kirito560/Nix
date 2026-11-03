@@ -40,6 +40,7 @@ MENSAJES = [
     p.PlaybackFlush(turn_id="t"), p.StateSync(emotion={"valence": 0.3}, mood_label="contenta"),
     p.LlmText(turn_id="t", texto="¡GG!"),
     p.Error(codigo="x", detalle="y"),
+    p.BargeIn(turn_id="t"),
 ]
 
 

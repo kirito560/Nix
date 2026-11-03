@@ -124,9 +124,18 @@ class UserState(_Mensaje):
 
 
 class PlaybackAck(_Mensaje):
+    """Cuánto de la voz del turno sonó de verdad en el PC (ms desde su inicio). Lo manda el cliente al callarse
+    (playback.flush o barge.in), para que el historial guarde solo lo que se oyó."""
     type: Literal["playback.ack"] = "playback.ack"
     turn_id: str
     pts_played: int
+
+
+class BargeIn(_Mensaje):
+    """El cliente oyó al usuario hablar encima de la voz del personaje y ya la calló (BARGE_CLIENTE=1)."""
+    type: Literal["barge.in"] = "barge.in"
+    turn_id: Optional[str] = None
+    pts_played: Optional[int] = None     # cuánto de su voz sonó antes de callarla (como playback.ack)
 
 
 # Servidor -> cliente
@@ -176,12 +185,12 @@ class Error(_Mensaje):
 
 Mensaje = Annotated[
     Union[AuthChallenge, AuthResponse, AuthOk, VisionDelta, VisionFrame, PresenciaUpdate, UserState, PlaybackAck,
-          SttText, LlmText, AvatarCmd, PlaybackFlush, StateSync, Error],
+          BargeIn, SttText, LlmText, AvatarCmd, PlaybackFlush, StateSync, Error],
     Field(discriminator="type"),
 ]
 _ADAPTADOR = TypeAdapter(Mensaje)
 
-MENSAJES_DEL_CLIENTE = (AuthResponse, VisionDelta, VisionFrame, PresenciaUpdate, UserState, PlaybackAck)
+MENSAJES_DEL_CLIENTE = (AuthResponse, VisionDelta, VisionFrame, PresenciaUpdate, UserState, PlaybackAck, BargeIn)
 MENSAJES_DEL_SERVIDOR = (AuthChallenge, AuthOk, SttText, LlmText, AvatarCmd, PlaybackFlush, StateSync, Error)
 
 

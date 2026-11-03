@@ -27,7 +27,7 @@ from server.pipeline.escucha import Escucha
 from server.sesion import EstadoSesion
 from shared import auth
 from shared.protocol import (CIERRE_NO_AUTORIZADO, CIERRE_REEMPLAZADO, AuthChallenge, AuthOk, AuthResponse,
-                             ErrorProtocolo, PlaybackAck, PresenciaUpdate, UserState, VisionDelta, VisionFrame,
+                             BargeIn, ErrorProtocolo, PlaybackAck, PresenciaUpdate, UserState, VisionDelta, VisionFrame,
                              decodificar_audio_in, parsear_mensaje)
 
 log = logging.getLogger("nix.gateway")
@@ -81,6 +81,7 @@ class Gateway:
         self.sesion = self._sesion_nueva()       # estado de la conexión actual (historial, presencia...)
         self.registro = Registro()
         self.actual: ServerConnection | None = None
+        self.tareas: set[asyncio.Task] = set()   # interrupciones pedidas por el cliente (barge.in)
 
     def _sesion_nueva(self) -> EstadoSesion:
         """Cada conexión empieza con su propio estado; al cerrarse se tira (historial incluido)."""
@@ -124,7 +125,7 @@ class Gateway:
                         log.info(resumen)
                     await escucha.recibir_audio(pcm)
                 else:
-                    self._mensaje(trama)
+                    self._mensaje(trama, escucha)
         except ConnectionClosed:
             pass
         finally:
@@ -153,7 +154,14 @@ class Gateway:
         log.info("✅ cliente %s autenticado", ip)
         return True
 
-    def _mensaje(self, texto: str) -> None:
+    @staticmethod
+    async def _barge_cliente(escucha: Escucha, msg: BargeIn) -> None:
+        """El cliente ya calló su voz: se cancela el turno y el historial guarda lo que sonó."""
+        await escucha.orquestador.interrumpir("barge-in del cliente")
+        if msg.turn_id is not None and msg.pts_played is not None:
+            escucha.orquestador.oido(msg.turn_id, msg.pts_played)
+
+    def _mensaje(self, texto: str, escucha: Optional[Escucha] = None) -> None:
         try:
             msg = parsear_mensaje(texto)
         except ErrorProtocolo as e:
@@ -161,11 +169,18 @@ class Gateway:
             return
         if isinstance(msg, PresenciaUpdate):
             self.sesion.actualizar_presencia(msg)
+        elif isinstance(msg, PlaybackAck) and escucha is not None:
+            escucha.orquestador.oido(msg.turn_id, msg.pts_played)
+        elif isinstance(msg, BargeIn) and escucha is not None:
+            if escucha.orquestador.hablando:
+                tarea = asyncio.create_task(self._barge_cliente(escucha, msg), name="barge-in")
+                self.tareas.add(tarea)
+                tarea.add_done_callback(self.tareas.discard)
         elif isinstance(msg, (VisionDelta, VisionFrame)) and not self.cfg.vision_habilitada:
             log.debug("visión apagada (VISION_HABILITADA=0); ignoro %s", msg.type)
         elif isinstance(msg, (VisionDelta, VisionFrame)) and self.vista is not None:
             self.vista.recibir(msg)
-        elif isinstance(msg, (VisionDelta, VisionFrame, UserState, PlaybackAck)):
+        elif isinstance(msg, (VisionDelta, VisionFrame, UserState, PlaybackAck, BargeIn)):
             log.debug("recibido %s (se usará en fases posteriores)", msg.type)
         else:
             log.warning("el cliente no debe enviar %s", json.loads(texto).get("type"))

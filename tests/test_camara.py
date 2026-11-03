@@ -109,7 +109,7 @@ def test_el_cliente_arranca_con_la_camara_apagada(monkeypatch):
     llamadas = {}
 
     async def conversar(url, token, fuente, salida, al_audio, captura, encender=False, presencia=None,
-                        encender_camara=False):
+                        encender_camara=False, **_):
         llamadas["camara"], llamadas["activa"] = encender_camara, presencia.activa
 
     monkeypatch.setattr(cm, "conversar_con_pantalla", conversar)

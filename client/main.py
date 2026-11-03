@@ -22,6 +22,7 @@ from pathlib import Path
 
 from websockets.exceptions import ConnectionClosed
 
+from client.barge import BargeCliente, Envio, Reproduccion
 from client.audio_io import (Altavoz, ArchivoWav, AudioDuplex, ErrorAudio, GrabadorWav, info_dispositivo,
                              probar_audio)
 from client.camara import Presencia
@@ -35,14 +36,17 @@ from shared.protocol import CIERRE_NO_AUTORIZADO, CIERRE_REEMPLAZADO, LlmText, P
 log = logging.getLogger("nix.cliente")
 
 
-def crear_mostrar(salida):
+def crear_mostrar(salida, reproduccion: Reproduccion | None = None, envio: Envio | None = None):
     async def mostrar(msg) -> None:
         if isinstance(msg, SttText):
             print(f"🗣️  tú: {msg.texto}", flush=True)
         elif isinstance(msg, LlmText) and msg.texto:
             print(f"🤖 {msg.texto}", flush=True)
         elif isinstance(msg, PlaybackFlush):
-            salida.vaciar()
+            if reproduccion is None:
+                salida.vaciar()
+            elif (ack := reproduccion.callar()) is not None and envio is not None:
+                await envio.mandar(ack)              # cuánto sonó: el historial guarda solo eso
             print("✋ (interrumpida)", flush=True)
     return mostrar
 
@@ -92,17 +96,20 @@ def main(argv: list[str] | None = None) -> None:
         fuente = salida = AudioDuplex(_dispositivo(args.dispositivo), _dispositivo(args.altavoz),
                                       aec=not args.sin_aec, retraso_ms=float(retraso) if retraso else None)
         print("🎤 Habla cuando quieras (Ctrl+C para salir; Ctrl+Alt+P pantalla sí/no; Ctrl+Alt+C apaga la cámara).")
-    al_audio = lambda _turno, _pts, sr, pcm: salida.reproducir(sr, pcm)  # noqa: E731
+    envio, reproduccion = Envio(), Reproduccion(salida)
+    al_audio = reproduccion.al_audio
     try:
         if args.wav:
-            asyncio.run(ejecutar(args.servidor, token, fuente.tramas(), crear_mostrar(salida),
-                                 espera_final_s=args.espera, al_audio=al_audio))
+            asyncio.run(ejecutar(args.servidor, token, fuente.tramas(), crear_mostrar(salida, reproduccion, envio),
+                                 espera_final_s=args.espera, al_audio=al_audio, al_conectar=envio.conectar))
         else:
             indicador = Indicador()
             asyncio.run(conversar_con_pantalla(args.servidor, token, fuente, salida, al_audio,
                                                crear_captura(e, indicador), encender=args.pantalla == "on",
                                                presencia=crear_presencia(e, indicador),
-                                               encender_camara=args.camara == "on"))
+                                               encender_camara=args.camara == "on",
+                                               reproduccion=reproduccion, envio=envio,
+                                               barge=crear_barge(e, reproduccion, envio)))
     except ErrorAutenticacion as err:
         log.error("❌ autenticación: %s", err)
         sys.exit(1)
@@ -133,6 +140,16 @@ def crear_captura(e: Entorno, indicador: Indicador | None = None) -> CapturaPant
                            al_cambiar_estado=indicador.pantalla if indicador else None)
 
 
+def crear_barge(e: Entorno, reproduccion: Reproduccion, envio: Envio) -> BargeCliente | None:
+    """BARGE_CLIENTE=1: callarla en el PC en cuanto hablas encima (apagado por defecto: probar con bocinas)."""
+    if not e.booleano("BARGE_CLIENTE", False):
+        return None
+    barge = BargeCliente(reproduccion, envio, umbral_db=e.decimal("BARGE_CLIENTE_UMBRAL_DB", -35.0),
+                         min_ms=e.decimal("BARGE_CLIENTE_MIN_MS", 250.0))
+    log.info("✋ barge-in en el cliente: ENCENDIDO (umbral %.0f dBFS, %.0f ms de voz)", barge.umbral_db, barge.min_ms)
+    return barge
+
+
 def crear_presencia(e: Entorno, indicador: Indicador | None = None) -> Presencia:
     return Presencia(indice=int(e.decimal("CAMARA_INDICE", 0)),
                      al_cambiar_estado=indicador.camara if indicador else None)
@@ -140,7 +157,8 @@ def crear_presencia(e: Entorno, indicador: Indicador | None = None) -> Presencia
 
 async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio, captura: CapturaPantalla,
                                  encender: bool = False, presencia: Presencia | None = None,
-                                 encender_camara: bool = False) -> None:
+                                 encender_camara: bool = False, reproduccion: Reproduccion | None = None,
+                                 envio: Envio | None = None, barge: BargeCliente | None = None) -> None:
     """La conversación de siempre, más la captura de pantalla y la presencia por cámara (las dos apagadas salvo
     `encender` / `encender_camara`) y sus atajos."""
     atajos = Atajos(captura, presencia)
@@ -160,9 +178,12 @@ async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio,
         captura.conectar(enviar)
         if presencia is not None:
             presencia.conectar(enviar)
+        if envio is not None:
+            envio.conectar(enviar)
 
     try:
-        await conversar_siempre(url, token, fuente, salida, al_audio, al_conectar=al_conectar)
+        await conversar_siempre(url, token, fuente, salida, al_audio, al_conectar=al_conectar,
+                                reproduccion=reproduccion, envio=envio, barge=barge)
     finally:
         for tarea in tareas:
             tarea.cancel()
@@ -173,15 +194,18 @@ async def conversar_con_pantalla(url: str, token: str, fuente, salida, al_audio,
 
 
 async def conversar_siempre(url: str, token: str, fuente: AudioDuplex, salida, al_audio,
-                            al_conectar=None) -> None:
+                            al_conectar=None, reproduccion: Reproduccion | None = None, envio: Envio | None = None,
+                            barge: BargeCliente | None = None) -> None:
     """Con el micrófono: si se corta la conexión (reinicio del servidor, Wi-Fi...), se reconecta sola,
     esperando 1, 2, 4... hasta 10 s. No reintenta si el token es incorrecto o si otro cliente la reemplazó."""
     espera = 1.0
     while True:
         inicio = time.monotonic()
         try:
-            async with aclosing(fuente.tramas()) as tramas:
-                await ejecutar(url, token, tramas, crear_mostrar(salida), al_audio=al_audio, al_conectar=al_conectar)
+            origen = fuente.tramas() if barge is None else barge.vigilar(fuente.tramas())
+            async with aclosing(origen) as tramas:
+                await ejecutar(url, token, tramas, crear_mostrar(salida, reproduccion, envio), al_audio=al_audio,
+                               al_conectar=al_conectar)
             return
         except ConnectionClosed as err:
             codigo = err.rcvd.code if err.rcvd else None

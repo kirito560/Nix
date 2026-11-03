@@ -36,6 +36,7 @@ class ConfigServidor:
     vad_umbral: float = 0.5
     vad_silencio_ms: float = 300.0             # con 250 se cortaban frases con pausas de ~300 ms (2026-11-02)
     vad_min_voz_ms: float = 250.0
+    vad_pre_roll_ms: float = 600.0            # audio de antes de que el VAD detecte la voz (no cortar el arranque)
     stt_adelanto_ms: float = 150.0            # 0 = no adelantar la transcripción; menor que vad_silencio_ms
     # LLM
     llm_proveedor: str = "auto"               # auto | groq | freellmapi | stub
@@ -90,6 +91,7 @@ class ConfigServidor:
             vad_umbral=e.decimal("VAD_UMBRAL", 0.5),
             vad_silencio_ms=e.decimal("VAD_SILENCIO_MS", 300.0),
             vad_min_voz_ms=e.decimal("VAD_MIN_VOZ_MS", 250.0),
+            vad_pre_roll_ms=e.decimal("VAD_PRE_ROLL_MS", 600.0),
             stt_adelanto_ms=e.decimal("STT_ADELANTO_MS", 150.0),
             llm_proveedor=e.texto("LLM_PROVEEDOR", "auto").lower(),
             freellmapi_url=e.texto("FREELLMAPI_URL"),

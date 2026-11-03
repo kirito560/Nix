@@ -304,6 +304,12 @@ class Altavoz:
     def vaciar(self) -> None:
         self.cola.vaciar()
 
+    def pendiente_ms(self) -> float:
+        """Voz que todavía no suena (en cola)."""
+        if self.info is None:
+            return 0.0
+        return len(self.cola) / 2 / self.info.canales / self.info.sr * 1000
+
     def _abrir(self) -> bool:
         if self.fallo_en is not None and time.monotonic() - self.fallo_en < REINTENTO_AUDIO_S:
             return False
@@ -344,6 +350,9 @@ class GrabadorWav:
             self.w.setsampwidth(2)
             self.w.setframerate(sample_rate)
         self.w.writeframes(pcm)
+
+    def pendiente_ms(self) -> float:
+        return 0.0                                       # se graba al instante
 
     def vaciar(self) -> None:
         pass
@@ -392,6 +401,12 @@ class AudioDuplex:
         if self.separado is not None:
             self.separado.vaciar()
         self.cola_salida.vaciar()
+
+    def pendiente_ms(self) -> float:
+        """Voz que todavía no suena (en cola)."""
+        if self.separado is not None:
+            return self.separado.pendiente_ms()
+        return len(self.cola_salida) / 2 / self.SR * 1000
 
     def cerrar(self) -> None:
         if self.separado is not None:
