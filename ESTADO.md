@@ -204,7 +204,7 @@ Auditoría de secretos del mismo día:
 
 | Dónde | Qué | Cuándo |
 |---|---|---|
-| `~/nix/.env` (permisos 600, fuera de git) | Tiene `NIX_TOKEN` y `GROQ_API_KEY` (la clave la puso Kirito). Valores que difieren de `.env.example`: `BARGE_IN=0` (era 1; Nix se interrumpía sola), `GROQ_MODELO_STT=whisper-large-v3` (era turbo; transcribe mejor) y `VISION_HABILITADA=1` (era 0; segunda llave de la pantalla) `LLM_MAX_TOKENS=90` (era 300; respuestas cortas), `VAD_SILENCIO_MS=300` (era 400) y `STT_ADELANTO_MS=150` (era 200; latencia, 2026-11-02). Las variables nuevas (`STT_PROMPT`, `STT_MIN_LOGPROB`, `VISION_*`, `PANTALLA_*`, `AEC*`) no están: se usan sus valores por defecto. | 2026-10-29 a 11-02 |
+| `~/nix/.env` (permisos 600, fuera de git) | Tiene `NIX_TOKEN` y `GROQ_API_KEY` (la clave la puso Kirito). Valores que difieren de `.env.example`: `BARGE_IN=0` (era 1; Nix se interrumpía sola), `GROQ_MODELO_STT=whisper-large-v3` (era turbo; transcribe mejor) y `VISION_HABILITADA=1` (era 0; segunda llave de la pantalla) `LLM_MAX_TOKENS=90` (era 300; respuestas cortas), `VAD_SILENCIO_MS=300` (era 400) y `STT_ADELANTO_MS=150` (era 200; latencia, 2026-11-02). Desde el 2026-11-03 tiene `FREELLMAPI_URL=http://127.0.0.1:3001/v1` y `FREELLMAPI_CLAVE` vacía (las puso Kirito), con `LLM_PROVEEDOR=auto`. Las variables nuevas (`STT_PROMPT`, `STT_MIN_LOGPROB`, `VISION_*`, `PANTALLA_*`, `AEC*`) no están: se usan sus valores por defecto. | 2026-10-29 a 11-02 |
 | `~/.config/systemd/user/nix.service` | Copia de `despliegue/nix.service` (idéntica), habilitada (`systemctl --user enable --now nix`). | 2026-10-29 |
 | Servicio `nix` | Reiniciado varias veces para aplicar cambios del código y del `.env`; hoy queda activo con el código local más nuevo (aún sin push). | 2026-10-29 a 11-02 |
 | `~/nix/.venv` (fuera de git) | Paquetes de los `requirements`, más mss, pillow, pynput, python-xlib y six para correr las pruebas de pantalla. | 2026-11-02 |
@@ -322,3 +322,9 @@ todavía hablas, como los asistentes de voz comerciales.
 - **Pendiente (Kirito):** instalar el router (README, «Router de LLM local»), añadir claves de proveedores en su
   panel, poner la URL y la clave en `.env`, y medir 20 turnos con cada uno.
 - 303 pruebas pasan.
+- **Revisión del 2026-11-03:**
+  - `.env` tiene `FREELLMAPI_URL` (correcta) y `FREELLMAPI_CLAVE` (vacía); `LLM_PROVEEDOR` sigue en `auto`.
+  - `medir_turnos.sh` es ejecutable.
+  - Búsqueda de secretos (prefijos `gsk_`, `sk-`, `ghp_`, `freellmapi-`, llaves privadas, asignaciones
+    largas a clave/token/password) en los 86 archivos versionados y en todo el historial: 0 coincidencias.
+    Los valores reales de `NIX_TOKEN` y `GROQ_API_KEY` aparecen 0 veces.
