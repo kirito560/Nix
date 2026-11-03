@@ -169,3 +169,32 @@ async def test_con_el_orquestador_el_usuario_no_nota_el_cambio():
 
 async def _todo(llm) -> str:
     return "".join([t async for t in llm.responder([{"role": "user", "content": "hola"}])])
+
+
+async def test_si_groq_se_cuelga_responde_el_respaldo(caplog):
+    """Groq a veces se queda colgado (medido: 20 s sin respuesta). Pasado LLM_ESPERA_S, responde el respaldo."""
+    def manejar(request):
+        modelo = json.loads(request.content)["model"]
+        if modelo == "qwen/qwen3.8-27b":
+            raise httpx.ReadTimeout("sin respuesta", request=request)
+        return httpx.Response(200, content=sse({"choices": [{"delta": {"content": "Aquí estoy."}}]}, "[DONE]"))
+
+    llm = LLMGroq("k", "qwen/qwen3.8-27b", respaldo="openai/gpt-oss-120b", espera_s=0.1,
+                  cliente=httpx.AsyncClient(transport=httpx.MockTransport(manejar)))
+    assert await _todo(llm) == "Aquí estoy."
+    assert "RESPALDO" in caplog.text and "no respondió" in caplog.text
+
+
+async def test_si_groq_se_cuelga_a_media_respuesta_sube_el_error():
+    class Corte(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield sse({"choices": [{"delta": {"content": "Hola"}}]})
+            raise httpx.ReadTimeout("se colgó")
+
+    llm = LLMGroq("k", "qwen/qwen3.8-27b", respaldo="openai/gpt-oss-120b", espera_s=0.1,
+                  cliente=httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, stream=Corte()))))
+    trozos = []
+    with pytest.raises(ErrorLLM, match="media frase"):
+        async for t in llm.responder([{"role": "user", "content": "hola"}]):
+            trozos.append(t)
+    assert trozos == ["Hola"]

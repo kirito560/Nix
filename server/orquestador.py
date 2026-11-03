@@ -96,7 +96,8 @@ def prompt_sistema(personaje: Personaje) -> str:
 
 class Historial:
     """Últimos turnos de la conversación actual (solo en memoria). Vive en el estado de la sesión
-    (server/sesion.py): se borra al desconectarse el PC y nunca va a una memoria de largo plazo."""
+    (server/sesion.py) y se borra al desconectarse el PC. Lo que perdura son los hechos que la memoria de
+    largo plazo (server/memoria.py) extrae de lo que dijo el usuario."""
 
     def __init__(self, max_turnos: int):
         self.mensajes: deque[dict] = deque(maxlen=max(2, max_turnos * 2))
@@ -125,12 +126,14 @@ class Turno:
 class Orquestador:
     def __init__(self, personaje: Personaje, llm: ProveedorLLM, tts: ProveedorTTS,
                  enviar: Callable[[object], Awaitable[None]], registro: Registro, historial: Historial,
-                 contexto: Optional[Callable[[], str]] = None, max_oraciones: int = 2, animo=None):
+                 contexto: Optional[Callable[[], str]] = None, max_oraciones: int = 2, animo=None,
+                 memoria=None):
         self.personaje, self.llm, self.tts, self.enviar = personaje, llm, tts, enviar
         self.registro, self.historial = registro, historial
         self.contexto = contexto                 # p. ej. el resumen de la pantalla del usuario (o "")
         self.max_oraciones = max_oraciones       # tope de oraciones por respuesta (0 = sin tope)
         self.animo = animo                       # server.animo.Animo: se ajusta después de cada respuesta
+        self.memoria = memoria                   # server.memoria.SesionMemoria: recuerdos de largo plazo
         self.sistema = prompt_sistema(personaje)
         self.turno: Optional[Turno] = None
         self.ultimo_interrumpido: Optional[Turno] = None
@@ -202,6 +205,8 @@ class Orquestador:
         if self.turno is not None and self.turno.tarea is not None:
             self.turno.tarea.cancel()
             await asyncio.gather(self.turno.tarea, return_exceptions=True)
+        if self.memoria is not None:
+            await self.memoria.cerrar()
 
     # ------------------------------------------------------------------ un turno
     async def _turno(self, turno: Turno, texto: Optional[str], fija: Optional[str] = None) -> None:
@@ -210,7 +215,7 @@ class Orquestador:
         if fija is not None:
             pensar = self._frase_fija(fija, frases)
         else:
-            pensar = self._pensar(turno, self.historial.para_llm(self._sistema(), texto), frases)
+            pensar = self._pensar(turno, self.historial.para_llm(self._sistema(texto), texto), frases)
         tareas = [asyncio.create_task(pensar, name="pensar"),
                   asyncio.create_task(self._sintetizar(turno, frases, audios), name="sintetizar")]
         try:
@@ -234,6 +239,8 @@ class Orquestador:
                 self.historial.agregar("user", texto)
                 self.historial.agregar("assistant", self._etiqueta(turno) + dicho)
                 turno.en_historial = self.historial.mensajes[-1]
+                if self.memoria is not None:
+                    self.memoria.turno(texto, dicho)    # extrae recuerdos en segundo plano, cada pocos turnos
                 if self.animo is not None:
                     self.animo.tras_turno(texto)
             if not turno.interrumpido:
@@ -296,8 +303,10 @@ class Orquestador:
         log.info("🎭 emoción: %s%s", turno.emocion, "" if turno.etiquetada else " (sin etiqueta)")
         await self.enviar(AvatarCmd(turn_id=turno.id, pts=0, expression=turno.emocion))
 
-    def _sistema(self) -> str:
-        extra = self.contexto() if self.contexto is not None else ""
+    def _sistema(self, texto_usuario: Optional[str] = None) -> str:
+        partes = [self.contexto() if self.contexto is not None else "",
+                  self.memoria.recuerdos(texto_usuario) if self.memoria is not None and texto_usuario else ""]
+        extra = "\n".join(p for p in partes if p)
         return f"{self.sistema}\n\n{extra}" if extra else self.sistema
 
     @staticmethod

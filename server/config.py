@@ -38,6 +38,10 @@ class ConfigServidor:
     vad_min_voz_ms: float = 250.0
     vad_pre_roll_ms: float = 600.0            # audio de antes de que el VAD detecte la voz (no cortar el arranque)
     stt_adelanto_ms: float = 150.0            # 0 = no adelantar la transcripción; menor que vad_silencio_ms
+    # Memoria de largo plazo (server/memoria.py)
+    memoria: bool = True
+    memoria_modelo: str = "openai/gpt-oss-20b"
+    memoria_cada_turnos: int = 3
     # LLM
     llm_proveedor: str = "auto"               # auto | groq | freellmapi | stub
     freellmapi_url: str = ""                  # router local compatible con OpenAI, p. ej. http://127.0.0.1:3001/v1
@@ -49,6 +53,7 @@ class ConfigServidor:
     llm_max_tokens: int = 90                  # una o dos frases (~30-60 tokens en español)
     respuesta_max_oraciones: int = 2          # tope duro de oraciones por respuesta (0 = sin tope)
     llm_temperatura: float = 0.8
+    llm_espera_s: float = 6.0                 # sin texto de Groq en este tiempo: responde el modelo de respaldo
     historial_turnos: int = 10                # pares usuario/personaje que se recuerdan (la memoria llega en la fase 4)
     # TTS
     tts_proveedor: str = "auto"               # auto | edge | stub
@@ -94,6 +99,9 @@ class ConfigServidor:
             vad_pre_roll_ms=e.decimal("VAD_PRE_ROLL_MS", 600.0),
             stt_adelanto_ms=e.decimal("STT_ADELANTO_MS", 150.0),
             llm_proveedor=e.texto("LLM_PROVEEDOR", "auto").lower(),
+            memoria=e.booleano("MEMORIA", True),
+            memoria_modelo=e.texto("MEMORIA_MODELO", "openai/gpt-oss-20b"),
+            memoria_cada_turnos=e.entero("MEMORIA_CADA_TURNOS", 3),
             freellmapi_url=e.texto("FREELLMAPI_URL"),
             freellmapi_clave=e.texto("FREELLMAPI_CLAVE"),
             freellmapi_espera_s=e.decimal("FREELLMAPI_ESPERA_S", 4.0),
@@ -103,6 +111,7 @@ class ConfigServidor:
             llm_max_tokens=e.entero("LLM_MAX_TOKENS", 90),
             respuesta_max_oraciones=e.entero("RESPUESTA_MAX_ORACIONES", 2),
             llm_temperatura=e.decimal("LLM_TEMPERATURA", 0.8),
+            llm_espera_s=e.decimal("LLM_ESPERA_S", 6.0),
             historial_turnos=e.entero("HISTORIAL_TURNOS", 10),
             tts_proveedor=e.texto("TTS_PROVEEDOR", "auto").lower(),
             tts_voz=e.texto("TTS_VOZ"),

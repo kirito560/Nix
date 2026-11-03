@@ -6,7 +6,7 @@ trozos de texto a medida que llegan, para que el TTS pueda empezar con la primer
     manda `reasoning_effort` (low = menos espera antes del primer token); solo se lee `delta.content`, así
     que el razonamiento nunca llega a la voz. Si Groq retira el modelo (404 model_not_found), pasa al
     modelo de respaldo y se queda con él. Si el modelo está en su límite de uso (429) o Groq no tiene
-    capacidad (498/503), ESE turno lo responde el modelo de respaldo y el siguiente vuelve a probar el
+    capacidad (498/503) o no responde en LLM_ESPERA_S, ESE turno lo responde el modelo de respaldo y el siguiente vuelve a probar el
     principal; en el log sale «RESPALDO». Si el respaldo también falla, el error sube y el Orquestador dice
     la frase de error.
   - LLMRouter: un router local compatible con OpenAI (freellmapi) con model="auto": el router elige entre
@@ -68,9 +68,10 @@ class LLMGroq(ProveedorLLM):
     URL = "https://api.groq.com/openai/v1/chat/completions"
 
     def __init__(self, api_key: str, modelo: str, max_tokens: int = 300, temperatura: float = 0.8,
-                 razonamiento: str = "low", cliente=None, respaldo: str = ""):
+                 razonamiento: str = "low", cliente=None, respaldo: str = "", espera_s: float = 6.0):
         from server.pipeline import groq_http
         self.api_key, self.modelo, self.respaldo = api_key, modelo, respaldo
+        self.espera_s = espera_s                  # tope de espera por trozo (Groq a veces se queda colgado)
         self.max_tokens, self.temperatura, self.razonamiento = max_tokens, temperatura, razonamiento
         self.http = cliente or groq_http.cliente()
 
@@ -111,8 +112,24 @@ class LLMGroq(ProveedorLLM):
                 raise
 
     async def _responder(self, mensajes: list[dict], modelo: str) -> AsyncIterator[str]:
+        """Si Groq no manda nada en espera_s antes del primer texto, es como un 429: responde el respaldo.
+        Si se cuelga a media respuesta, el error sube (no se puede empezar otra respuesta a medias)."""
+        import httpx
+        dio_texto = False
+        try:
+            async for trozo in self._stream(mensajes, modelo):
+                dio_texto = True
+                yield trozo
+        except httpx.TimeoutException as e:
+            if dio_texto:
+                raise ErrorLLM(f"Groq dejó de responder a media frase ({type(e).__name__})") from e
+            raise LimiteDeUso(f"Groq no respondió en {self.espera_s:.0f} s ({type(e).__name__})") from e
+
+    async def _stream(self, mensajes: list[dict], modelo: str) -> AsyncIterator[str]:
+        import httpx
         async with self.http.stream("POST", self.URL, json=self.cuerpo(mensajes, modelo),
-                                    headers={"Authorization": f"Bearer {self.api_key}"}) as r:
+                                    headers={"Authorization": f"Bearer {self.api_key}"},
+                                    timeout=httpx.Timeout(self.espera_s, connect=5.0)) as r:
             if r.status_code >= 400:
                 await r.aread()
                 if r.status_code == 404 and "model_not_found" in r.text:
@@ -207,7 +224,7 @@ def _describir(e: Exception) -> str:
 
 def _crear_groq(cfg: ConfigServidor) -> LLMGroq:
     return LLMGroq(cfg.groq_api_key, cfg.llm_modelo, cfg.llm_max_tokens, cfg.llm_temperatura,
-                   cfg.llm_razonamiento, respaldo=cfg.llm_modelo_respaldo)
+                   cfg.llm_razonamiento, respaldo=cfg.llm_modelo_respaldo, espera_s=cfg.llm_espera_s)
 
 
 def crear_llm(cfg: ConfigServidor) -> ProveedorLLM:

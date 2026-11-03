@@ -17,6 +17,7 @@ from server.orquestador import (FRASE_NO_ENTENDI, FRASE_SIN_CEREBRO, FRASE_SUAVE
 from server.personaje import cargar_personaje
 from server.pipeline import groq_http
 from server.pipeline.escucha import Escucha
+from server.memoria import ExtractorGroq, Memoria, SesionMemoria, esperar_pendientes
 from server.pipeline.emocion import EMOCIONES
 from server.pipeline.llm import crear_llm
 from server.pipeline.stt import crear_stt
@@ -35,6 +36,16 @@ async def principal() -> None:
     personaje.crear_carpeta()
     log.info("🎮 Personaje: %s (voz %s, datos en %s)", personaje.nombre, personaje.voz, personaje.datos)
     log.info("👁️ Visión: %s", "ENCENDIDA" if cfg.vision_habilitada else "apagada")
+    memoria = Memoria(personaje.datos / "memoria.sqlite") if cfg.memoria else None
+    extractor = ExtractorGroq(cfg.groq_api_key, cfg.memoria_modelo) if memoria and cfg.groq_api_key else None
+    if memoria is not None:
+        caducados = memoria.limpiar_caducados()
+        log.info("🧠 Memoria de largo plazo: %d recuerdos en %s%s%s", len(memoria.todos()), memoria.ruta,
+                 f" ({caducados} estados caducados borrados)" if caducados else "",
+                 f"; extracción con {cfg.memoria_modelo} cada {cfg.memoria_cada_turnos} turnos" if extractor
+                 else "; sin GROQ_API_KEY no se extraen recuerdos nuevos")
+    else:
+        log.info("🧠 Memoria de largo plazo: apagada (MEMORIA=0)")
     stt, llm, tts = crear_stt(cfg), crear_llm(cfg), crear_tts(cfg, personaje.voz)
     log.info("🎙️ STT: %s | 🧠 LLM: %s%s | 🔈 TTS: %s%s", stt.nombre, llm.nombre,
              _modelo_llm(cfg, llm), tts.nombre,
@@ -56,9 +67,11 @@ async def principal() -> None:
         detector = DetectorVoz(crear_puntuador(cfg.silero_onnx), umbral=cfg.vad_umbral,
                                silencio_ms=cfg.vad_silencio_ms, min_voz_ms=cfg.vad_min_voz_ms,
                                pre_roll_ms=cfg.vad_pre_roll_ms)
+        sesion_memoria = SesionMemoria(memoria, extractor, cfg.memoria_cada_turnos) if memoria is not None else None
         orquestador = Orquestador(personaje, llm, tts, enviar, gateway.registro, gateway.sesion.historial,
                                   contexto=contexto,
-                                  max_oraciones=cfg.respuesta_max_oraciones, animo=gateway.sesion.animo)
+                                  max_oraciones=cfg.respuesta_max_oraciones, animo=gateway.sesion.animo,
+                                  memoria=sesion_memoria)
         return Escucha(detector, stt, orquestador, cfg.barge_in, cfg.barge_min_voz_ms, cfg.stt_adelanto_ms,
                        cfg.stt_cierre_temprano)
 
@@ -87,6 +100,12 @@ async def principal() -> None:
     if vista is not None:
         await vista.cerrar()
     await tts.cerrar()
+    if memoria is not None:
+        try:
+            await asyncio.wait_for(esperar_pendientes(), 20)     # el resumen de la última sesión
+        except asyncio.TimeoutError:
+            log.warning("🧠 no alcancé a guardar el resumen de la última sesión")
+        memoria.cerrar()
     log.info("👋 Servidor detenido. Latencias: %s", gateway.registro.resumen() or "sin turnos")
 
 
