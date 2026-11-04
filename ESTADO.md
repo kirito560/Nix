@@ -374,5 +374,16 @@ Antes de empezar: push de los 7 commits pendientes (aprobado por Kirito) y route
   - `elegir_par()` prueba WASAPI, DirectSound y MME y se queda con la primera donde el dúplex arranca y pasa audio; escribir la API al final del nombre la fija;
   - si el valor es del tipo equivocado, el error dice cuál es la opción más parecida (y avisa si ningún nombre se parece); un nombre ambiguo da error;
   - `--probar-audio` ya arranca el dúplex, no solo lo abre.
-- **Pruebas:** con hardware real, `--probar-audio` da ✅ en los tres. En Windows, 404 pasan y 5 fallan (`test_barge` 2, `test_memoria` 1, `test_vtube` 2): esos 5 fallan igual sin este cambio. `PRUEBAS.md` sigue siendo la corrida del servidor del 2026-11-03.
+- **Pruebas:** con hardware real, `--probar-audio` da ✅ en los tres. `PRUEBAS.md` sigue siendo la corrida del servidor del 2026-11-03.
 - **Pendiente:** conversar de verdad con estos dispositivos y mirar `🎧 eco atenuado`; aún no se comprobó de oído que el tono suene en la TV.
+
+
+### 2026-11-04: la suite pasa también en Windows (commit local, sin push)
+
+- Las 5 pruebas que fallaban en Windows eran suposiciones de las pruebas, no defectos de Nix:
+  - `test_barge` (2): esperas fijas; un `sleep(0.02)` dura ~31 ms en Windows. Ahora esperan a que haya dos frases listas.
+  - `test_vtube` (sin VTube Studio): rechazar una conexión tarda ~2 s en Windows. Ahora espera el aviso, hasta 5 s.
+  - `test_vtube` (token) y `test_memoria`: comprobaban permisos `0o600`, que Windows no tiene. Solo se comprueban en Linux.
+- Resultado en Windows, tres corridas seguidas: 408 pasan y 1 se omite (`test_la_base_queda_solo_para_el_dueno`, solo Linux).
+- **Sin comprobar:** la suite no se ha vuelto a correr en el servidor Linux con estos cambios.
+- **Sin proteger en Windows:** `chmod(0o600)` no hace nada allí; el token de VTube Studio queda con los permisos de `%APPDATA%`.
