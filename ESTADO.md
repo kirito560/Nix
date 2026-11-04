@@ -387,3 +387,9 @@ Antes de empezar: push de los 7 commits pendientes (aprobado por Kirito) y route
 - Resultado en Windows, tres corridas seguidas: 408 pasan y 1 se omite (`test_la_base_queda_solo_para_el_dueno`, solo Linux).
 - **Sin comprobar:** la suite no se ha vuelto a correr en el servidor Linux con estos cambios.
 - **Sin proteger en Windows:** `chmod(0o600)` no hace nada allí; el token de VTube Studio queda con los permisos de `%APPDATA%`.
+
+### 2026-11-04: auditoría de proyectos del PC (commit local, sin push)
+
+- Auditoría de solo lectura de esta carpeta y de `E:\Narwell2.0`. No se movió ni se borró nada.
+- El resultado y la propuesta de carpetas están en `MAPA_DE_PROYECTOS.md`, solo en este PC: está en `.git/info/exclude` porque este repositorio es público.
+- **Pendiente (Kirito):** revisar el mapa, sobre todo su primer aviso, y confirmar antes de ejecutar ningún movimiento.
