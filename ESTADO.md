@@ -392,4 +392,12 @@ Antes de empezar: push de los 7 commits pendientes (aprobado por Kirito) y route
 
 - Auditoría de solo lectura de esta carpeta y de `E:\Narwell2.0`. No se movió ni se borró nada.
 - El resultado y la propuesta de carpetas están en `MAPA_DE_PROYECTOS.md`, solo en este PC: está en `.git/info/exclude` porque este repositorio es público.
-- **Pendiente (Kirito):** revisar el mapa, sobre todo su primer aviso, y confirmar antes de ejecutar ningún movimiento.
+- **Pendiente (Kirito):** revisar el mapa, sobre todo su primer aviso, y confirmar antes de ejecutar ningún movimiento. ✅ Hecho: ver abajo.
+
+### 2026-11-04: reorganización y red antigua de Narwell en el PC (fuera de este repositorio)
+
+- Kirito autorizó reorganizar `E:\Narwell2.0`. No se tocó nada de Nix ni del servidor Ubuntu (Minecraft 26.3, DuckDNS, respaldos, archivo de Narwell).
+- Esa carpeta quedó en `01_Minecraft_Network`, `02_Discord_Bots`, `03_Proyectos_Aparte` y `04_Archivo`, con su índice de Git vacío y un `.gitignore` nuevo.
+- La red Paper 1.21.10 con Velocity se reconfiguró a petición de Kirito y cada servidor arrancó y se apagó bien por separado.
+- **Sin probar:** entrar con un cliente real y la red completa a la vez.
+- Los pendientes de esa red están en `E:\Narwell2.0\01_Minecraft_Network\PLUGINS_FALTANTES.md`, no en este repositorio.
