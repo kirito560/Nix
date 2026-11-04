@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 
 import httpx
@@ -98,6 +99,7 @@ def test_buscar_tarda_menos_de_15_ms_con_miles_de_recuerdos(tmp_path):
     assert max(tiempos) < 15, tiempos
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Windows no tiene permisos POSIX; la memoria vive en el servidor Linux")
 def test_la_base_queda_solo_para_el_dueno(tmp_path):
     ruta = tmp_path / "nix" / "memoria.sqlite"
     Memoria(ruta).guardar("Le gusta el anime", "gusto")

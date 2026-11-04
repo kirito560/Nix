@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 
 import numpy as np
 import pytest
@@ -85,7 +86,8 @@ async def test_pide_permiso_una_vez_y_guarda_el_token(vtube_falso, tmp_path):
     tarea = await conectado(p)
     await parar(tarea)
     assert vtube_falso.pidieron_token == 1 and token.read_text() == "token-de-prueba"
-    assert oct(token.stat().st_mode & 0o777) == "0o600"
+    if os.name == "posix":                                # Windows no tiene estos permisos: protege %APPDATA%
+        assert oct(token.stat().st_mode & 0o777) == "0o600"
     tarea = await conectado(PuenteVTube({}, vtube_falso.url, token_en=token))     # la segunda vez ya no pregunta
     await parar(tarea)
     assert vtube_falso.pidieron_token == 1
@@ -174,8 +176,8 @@ async def test_sin_vtube_studio_no_falla(caplog):
     caplog.set_level(logging.INFO, "nix.vtube")
     p = PuenteVTube({}, "ws://127.0.0.1:1")
     tarea = asyncio.create_task(p.correr())
-    await asyncio.sleep(0.3)
-    assert not tarea.done() and "no disponible" in caplog.text
+    await esperar(lambda: "no disponible" in caplog.text, 5.0)   # en Windows, rechazar la conexión tarda ~2 s
+    assert not tarea.done()
     await parar(tarea)
 
 

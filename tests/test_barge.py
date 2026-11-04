@@ -30,10 +30,19 @@ def test_lo_que_sono():
     assert lo_que_sono(FRASES, 0) == ""
 
 
+async def hasta_dos_frases(turno) -> None:
+    """Espera a que haya dos frases listas, sin contar con el reloj: un sleep(0.02) dura ~31 ms en Windows."""
+    for _ in range(300):
+        if len(turno.frases_pts) >= 2:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("no llegaron dos frases a tiempo")
+
+
 async def test_el_historial_guarda_lo_que_sono_segun_el_pc(caplog):
     o, _, _ = orquestador(LLMFijo("Una frase larga de prueba. Y otra más. Y otra.", pausa_s=0.02))
     await o.al_texto_usuario(TURNO, "cuéntame", span())
-    await asyncio.sleep(0.2)
+    await hasta_dos_frases(o.turno)
     await o.interrumpir("prueba")
     assert o.historial.mensajes[-1]["content"].endswith("—")
     inicio, fin, frase = o.turno.frases_pts[0]
@@ -44,9 +53,9 @@ async def test_el_historial_guarda_lo_que_sono_segun_el_pc(caplog):
 
 
 async def test_el_ack_llega_cuando_ya_empezo_el_turno_siguiente():
-    o, _, _ = orquestador(LLMFijo("Primera frase de la respuesta. Segunda frase.", pausa_s=0.02))
+    o, _, _ = orquestador(LLMFijo("Primera frase de la respuesta. Segunda frase. Tercera frase.", pausa_s=0.02))
     await o.al_texto_usuario(TURNO, "hola", span())
-    await asyncio.sleep(0.15)
+    await hasta_dos_frases(o.turno)                       # con la tercera aún por llegar: el turno sigue vivo
     viejo = o.turno
     await o.al_texto_usuario("00000000-0000-0000-0000-000000000002", "otra cosa", span())
     o.oido(TURNO, viejo.frases_pts[0][1])
