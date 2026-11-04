@@ -1,6 +1,6 @@
 # Estado de Nix · bitácora
 
-> Última actualización: 2026-10-30 (tarde). Al empezar cada sesión, léelo; al terminar cada tarea, actualízalo y haz commit.
+> Última actualización: 2026-11-04. Al empezar cada sesión, léelo; al terminar cada tarea, actualízalo y haz commit.
 
 ## Estado actual
 
@@ -90,10 +90,8 @@ Los modelos `llama-3.1-8b-instant` y `llama-3.3-70b-versatile` aparecen en la do
 1. ~~Clave de Groq~~ ✅ puesta en `~/nix/.env` (2026-10-29).
 2. ~~Firewall~~ ✅ comprobado: `8765/tcp ALLOW IN 192.168.1.0/24`.
    ⚠️ **Seguridad:** SSH (puerto 22) acepta conexiones desde cualquier dirección. Recomendado: entrar solo con llave.
-3. **Probar el audio en Windows** (2026-11-02): el cliente ya se conecta desde el PC (192.168.1.64). Falta
-   `git pull` y `python -m client.main --probar-audio` para elegir micrófono y altavoz que funcionen (README,
-   «Audio del PC»). Los cambios de la limpieza **no se han subido a GitHub**: Kirito pidió no hacer push hasta
-   revisarlos.
+3. ~~Elegir micrófono y altavoz en Windows~~ ✅ (2026-11-04, ver el final): `--probar-audio` da ✅ en micrófono,
+   altavoz y dúplex. Falta conversar de verdad con esos dispositivos y ajustar el AEC.
 4. **Decidir la voz de pago:** ya no hace tanta falta (edge-tts quedó en ~190 ms con las conexiones listas); lo que más ganaría ahora es STT en streaming (Deepgram).
 5. Fase 7: credenciales de Discord, Telegram y Twitch (`narchan_`).
 
@@ -366,3 +364,15 @@ Antes de empezar: push de los 7 commits pendientes (aprobado por Kirito) y route
 - Ficha de Nix y reglas de voz acortadas sin cambiar la personalidad, `HISTORIAL_TURNOS=6`, memoria ≤ ~300 tokens.
 - Tokens de entrada medidos con Groq (3 turnos): turno 1 de 1329 a 865 (−35 %). Con historial lleno, ~1800 → ~1200.
 - El log anota los tokens de cada turno (`📏`). 384 pruebas pasan. Sin push.
+
+### 2026-11-04: audio del PC por nombre, con la API elegida sola (commit local, sin push)
+
+- **Problema:** el `.env` del PC tenía `MIC_DISPOSITIVO=11` (la salida WD50FBR105 en MME) y `ALTAVOZ_DISPOSITIVO=22` (DELL P2012H en DirectSound).
+- **`.env` del PC (fuera de git):** `MIC_DISPOSITIVO=BKD-11 Pro Audio Device WASAPI` y `ALTAVOZ_DISPOSITIVO=WD50FBR105 WASAPI`. El dúplex arrancó en las tres APIs; WASAPI tiene la menor latencia (100 ms; MME 240, DirectSound 280).
+- **Código (`client/audio_io.py`):**
+  - un nombre se busca solo entre entradas o solo entre salidas, y encuentra los nombres que MME corta a 31 caracteres;
+  - `elegir_par()` prueba WASAPI, DirectSound y MME y se queda con la primera donde el dúplex arranca y pasa audio; escribir la API al final del nombre la fija;
+  - si el valor es del tipo equivocado, el error dice cuál es la opción más parecida (y avisa si ningún nombre se parece); un nombre ambiguo da error;
+  - `--probar-audio` ya arranca el dúplex, no solo lo abre.
+- **Pruebas:** con hardware real, `--probar-audio` da ✅ en los tres. En Windows, 404 pasan y 5 fallan (`test_barge` 2, `test_memoria` 1, `test_vtube` 2): esos 5 fallan igual sin este cambio. `PRUEBAS.md` sigue siendo la corrida del servidor del 2026-11-03.
+- **Pendiente:** conversar de verdad con estos dispositivos y mirar `🎧 eco atenuado`; aún no se comprobó de oído que el tono suene en la TV.
