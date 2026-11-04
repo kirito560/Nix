@@ -97,7 +97,7 @@ Nix usa **dos dispositivos** del PC:
 Si una variable está vacía o no existe, se usa el predeterminado de Windows. Cada uno se abre con sus canales y
 su frecuencia reales; el cliente convierte el audio solo.
 
-1. **Ver la lista** (el número de la izquierda es el que va en el `.env`):
+1. **Ver la lista:**
    ```powershell
    uv run --python .venv python -m client.main --listar
    ```
@@ -105,12 +105,15 @@ su frecuencia reales; el cliente convierte el audio solo.
    Windows WDM-KS. Al final dice qué micrófono y qué altavoz usará Nix.
 2. **Elegir** con `notepad .env`, por ejemplo:
    ```
-   MIC_DISPOSITIVO=14
-   ALTAVOZ_DISPOSITIVO=17
+   MIC_DISPOSITIVO=BKD-11 Pro Audio Device
+   ALTAVOZ_DISPOSITIVO=WD50FBR105
    ```
-   Escoge micrófono y altavoz **de la misma API** (los dos DirectSound, o los dos MME…). Solo así se abren
-   juntos y hay **cancelación de eco**, que evita que Nix se oiga a sí misma. Con audífonos no hace falta; con
-   bocinas, sí. Evita «CABLE Input/Output (VB-Audio)»: son cables virtuales y no suenan.
+   Con **nombres** (basta un trozo), el micrófono se busca solo entre entradas y el altavoz solo entre salidas,
+   y Nix prueba WASAPI, DirectSound y MME hasta encontrar la API donde abren juntos. Solo así hay **cancelación
+   de eco**, que evita que Nix se oiga a sí misma. Con audífonos no hace falta; con bocinas, sí.
+   Para fijar una API, añádela al final del nombre (`WD50FBR105 WASAPI`). También valen los números de la lista,
+   pero esos cambian al conectar dispositivos y no eligen API: escoge dos de la misma. Si un valor apunta a una
+   salida en vez de una entrada (o al revés), el error dice cuál es la correcta más parecida. Evita «CABLE Input/Output (VB-Audio)»: son cables virtuales y no suenan.
 3. **Probar:**
    ```powershell
    uv run --python .venv python -m client.main --probar-audio

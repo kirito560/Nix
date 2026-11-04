@@ -32,23 +32,28 @@ class ErrorPortAudio(Exception):
     pass
 
 
-def sd_falso(duplex_falla=True, mic_falla=False, altavoz_falla=False, nivel_mic=0.3):
-    """Módulo sounddevice falso. Registra lo que se abre en `sd.abiertos`."""
+def sd_falso(duplex_falla=True, mic_falla=False, altavoz_falla=False, nivel_mic=0.3, dispositivos=DISPOSITIVOS,
+             apis=APIS, duplex_abre=None, duplex_arranca=None):
+    """Módulo sounddevice falso. Registra lo que se abre en `sd.abiertos`. `duplex_abre` y `duplex_arranca`: las
+    APIs (índice) donde el dúplex abre y donde además pasa audio; None = en todas."""
     sd = types.SimpleNamespace(abiertos=[], tocado=[], PortAudioError=ErrorPortAudio)
 
     def query_devices(dispositivo=None, tipo=None):
         if dispositivo is None and tipo is None:
-            return DISPOSITIVOS
+            return dispositivos
         if dispositivo is None:
             dispositivo = 0 if tipo == "input" else 1
         if isinstance(dispositivo, str):
-            coincide = [d for d in DISPOSITIVOS if dispositivo.lower() in d["name"].lower()]
+            coincide = [d for d in dispositivos if dispositivo.lower() in d["name"].lower()]
             if not coincide:
                 raise ValueError(f"No input/output device matching {dispositivo!r}")
             return coincide[0]
-        if not 0 <= dispositivo < len(DISPOSITIVOS):
+        if not 0 <= dispositivo < len(dispositivos):
             raise ErrorPortAudio(f"Error querying device {dispositivo}")
-        return DISPOSITIVOS[dispositivo]
+        d = dispositivos[dispositivo]
+        if tipo and not d[f"max_{tipo}_channels"]:                  # como el sounddevice real
+            raise ValueError(f"Not an {tipo} device: {d['name']!r}")
+        return d
 
     class FlujoEntrada:
         def __init__(self, samplerate, channels, blocksize, device, callback, **_):
@@ -104,8 +109,18 @@ def sd_falso(duplex_falla=True, mic_falla=False, altavoz_falla=False, nivel_mic=
     def flujo_duplex(**kw):
         if duplex_falla:
             raise ErrorPortAudio("Invalid number of channels [PaErrorCode -9998]")
+        api = dispositivos[kw["device"][0]]["hostapi"]
+        if duplex_abre is not None and api not in duplex_abre:
+            raise ErrorPortAudio("Invalid device [PaErrorCode -9996]")
         sd.abiertos.append(("duplex", kw["device"], kw["channels"], kw["samplerate"]))
-        return types.SimpleNamespace(close=lambda: None)
+
+        def arrancar():
+            if duplex_arranca is None or api in duplex_arranca:
+                salida = bytearray(b"x" * (kw["blocksize"] * kw["channels"][1] * 2))
+                kw["callback"](bytes(kw["blocksize"] * kw["channels"][0] * 2), salida, kw["blocksize"], None, None)
+                assert not any(salida)                              # la prueba no debe hacer ruido
+
+        return types.SimpleNamespace(start=arrancar, stop=lambda: None, close=lambda: None)
 
     def play(datos, samplerate, device=None, blocking=False):
         if altavoz_falla:
@@ -120,7 +135,7 @@ def sd_falso(duplex_falla=True, mic_falla=False, altavoz_falla=False, nivel_mic=
         return np.repeat(tono[:, None], channels, axis=1)
 
     sd.query_devices = query_devices
-    sd.query_hostapis = lambda i: APIS[i]
+    sd.query_hostapis = lambda i: apis[i]
     sd.RawInputStream, sd.RawOutputStream, sd.RawStream = FlujoEntrada, FlujoSalida, flujo_duplex
     sd.play, sd.rec = play, rec
     return sd
@@ -288,6 +303,192 @@ def test_con_duplex_usa_los_canales_de_cada_lado(instalar):
     sd = instalar(duplex_falla=False)
     assert audio_io.probar_duplex(sd, 0, 1, imprimir=lambda _t: None)
     assert sd.abiertos[-1] == ("duplex", (0, 1), (2, 2), 48000)
+
+
+# ------------------------------------------------------------------ dispositivos por nombre
+# Como en el PC real: el mismo aparato en varias APIs, y MME corta los nombres a 31 caracteres.
+def _d(indice, nombre, api, entrada=0, salida=0):
+    return {"name": nombre, "index": indice, "hostapi": api, "max_input_channels": entrada,
+            "max_output_channels": salida, "default_samplerate": 48000.0}
+
+
+MME, DSOUND, WASAPI, KS = 0, 1, 2, 3
+APIS_PC = [{"name": "MME"}, {"name": "Windows DirectSound"}, {"name": "Windows WASAPI"}, {"name": "Windows WDM-KS"}]
+MIC, AUR, TV = "Micrófono (BKD-11 Pro Audio Device)", "Auriculares (BKD-11 Pro Audio Device)", \
+    "WD50FBR105 (NVIDIA High Definition Audio)"
+PC = [_d(0, MIC[:31], MME, entrada=2), _d(1, AUR[:31], MME, salida=2), _d(2, TV[:31], MME, salida=2),
+      _d(3, MIC, DSOUND, entrada=2), _d(4, AUR, DSOUND, salida=2), _d(5, TV, DSOUND, salida=2),
+      _d(6, TV, WASAPI, salida=2), _d(7, AUR, WASAPI, salida=2), _d(8, MIC, WASAPI, entrada=2),
+      _d(9, "CABLE Output (VB-Audio Virtual Cable)", WASAPI, entrada=2),
+      _d(10, MIC, KS, entrada=2), _d(11, "Output (NVIDIA High Definition Audio)", KS, salida=2),
+      _d(12, "Micrófono (Realtek(R) Audio)", MME, entrada=2), _d(13, "Micrófono (GENERAL WEBCAM)", MME, entrada=1)]
+
+
+@pytest.fixture
+def pc(instalar):
+    def _pc(**kw):
+        kw.setdefault("duplex_falla", False)
+        return instalar(dispositivos=PC, apis=APIS_PC, **kw)
+    return _pc
+
+
+def test_el_nombre_del_microfono_busca_solo_entre_entradas(pc):
+    sd = pc()
+    assert info_dispositivo(sd, "BKD-11 Pro Audio Device", "input").nombre == MIC
+    assert info_dispositivo(sd, "BKD-11 Pro Audio Device", "output").nombre == AUR  # el mismo nombre, otra dirección
+
+
+def test_el_nombre_del_altavoz_busca_solo_entre_salidas(pc):
+    sd = pc()
+    assert info_dispositivo(sd, "wd50fbr105", "output").indice == 6
+    with pytest.raises(ErrorAudio):
+        info_dispositivo(sd, "WD50FBR105", "input")
+
+
+def test_el_nombre_encuentra_el_cortado_de_mme_y_sin_acento(pc):
+    sd = pc()
+    assert info_dispositivo(sd, "BKD-11 Pro Audio Device MME", "input").indice == 0
+    assert info_dispositivo(sd, MIC + ", MME", "input").indice == 0
+    assert info_dispositivo(sd, TV + " MME", "output").indice == 2
+    assert info_dispositivo(sd, "microfono (general", "input").indice == 13
+
+
+def test_el_nombre_de_varios_no_adivina(pc):
+    with pytest.raises(ErrorAudio, match="coincide con varias"):
+        info_dispositivo(pc(), "Micrófono", "input")
+
+
+def test_la_api_escrita_en_el_nombre_se_respeta(pc):
+    sd = pc()
+    mic, alt = audio_io.elegir_par(sd, "BKD-11 Pro Audio Device DirectSound", "WD50FBR105 DirectSound")
+    assert (mic.indice, alt.indice) == (3, 5)
+    with pytest.raises(ErrorAudio, match="no está en wdm-ks"):
+        info_dispositivo(sd, "WD50FBR105 WDM-KS", "output")
+
+
+def test_con_nombres_elige_la_api_preferida_donde_abren(pc):
+    sd = pc()
+    mic, alt = audio_io.elegir_par(sd, "BKD-11 Pro Audio Device", "WD50FBR105")
+    assert (mic.indice, alt.indice, mic.api) == (8, 6, "Windows WASAPI")
+    assert sd.abiertos == [("duplex", (8, 6), (2, 2), 48000)]
+
+
+def test_si_wasapi_no_abre_prueba_la_siguiente_api(pc):
+    sd = pc(duplex_abre={DSOUND, MME})
+    mic, alt = audio_io.elegir_par(sd, "BKD-11 Pro Audio Device", "WD50FBR105")
+    assert (mic.indice, alt.indice) == (3, 5)
+
+
+def test_una_api_que_abre_pero_no_pasa_audio_no_sirve(pc, monkeypatch):
+    real = audio_io._duplex_arranca
+    monkeypatch.setattr(audio_io, "_duplex_arranca", lambda sd, m, a: real(sd, m, a, espera_s=0.01))
+    sd = pc(duplex_arranca={MME})
+    mic, alt = audio_io.elegir_par(sd, "BKD-11 Pro Audio Device", "WD50FBR105")
+    assert (mic.indice, alt.indice) == (0, 2)                         # MME, con los nombres cortados
+    assert [a[1] for a in sd.abiertos] == [(8, 6), (3, 5), (0, 2)]
+
+
+def test_si_ninguna_api_abre_avisa_y_no_revienta(pc, caplog):
+    sd = pc(duplex_abre=set())
+    mic, alt = audio_io.elegir_par(sd, "BKD-11 Pro Audio Device", "WD50FBR105")
+    assert (mic.indice, alt.indice) == (8, 6)
+    assert "no abren en dúplex" in caplog.text
+
+
+def test_un_indice_fija_la_api_del_nombre(pc):
+    sd = pc()
+    mic, alt = audio_io.elegir_par(sd, 3, "WD50FBR105")
+    assert (mic.indice, alt.indice) == (3, 5)
+
+
+def test_solo_con_indices_no_se_abre_nada_para_elegir(pc):
+    sd = pc()
+    mic, alt = audio_io.elegir_par(sd, 0, 5)
+    assert (mic.indice, alt.indice) == (0, 5) and sd.abiertos == []
+
+
+@pytest.mark.parametrize("valor", [1, 7, "Auriculares (BKD-11"])
+def test_salida_como_microfono_dice_la_entrada_mas_parecida(pc, valor):
+    with pytest.raises(ErrorAudio) as e:
+        audio_io.elegir_par(pc(), valor, "WD50FBR105")
+    texto = str(e.value)
+    assert "MIC_DISPOSITIVO" in texto and "es una salida, no una entrada" in texto
+    assert f"pon MIC_DISPOSITIVO={MIC}" in texto
+
+
+@pytest.mark.parametrize("valor", [8, "Micrófono (BKD-11"])
+def test_entrada_como_altavoz_dice_la_salida_mas_parecida(pc, valor):
+    with pytest.raises(ErrorAudio) as e:
+        audio_io.elegir_par(pc(), "BKD-11", valor)
+    texto = str(e.value)
+    assert "ALTAVOZ_DISPOSITIVO" in texto and "es una entrada, no una salida" in texto
+    assert f"pon ALTAVOZ_DISPOSITIVO={AUR}" in texto
+
+
+def test_nombre_mal_escrito_dice_el_mas_parecido(pc):
+    with pytest.raises(ErrorAudio) as e:
+        info_dispositivo(pc(), "BKD-12 Pro Audio Devise", "input")
+    assert "no encuentro" in str(e.value) and f"pon MIC_DISPOSITIVO={MIC}" in str(e.value)
+
+
+@pytest.mark.parametrize("valor", [2, "WD50FBR105"])
+def test_sin_nombre_parecido_la_sugerencia_se_da_como_dudosa(pc, valor):
+    with pytest.raises(ErrorAudio) as e:                            # una TV no tiene micrófono
+        info_dispositivo(pc(), valor, "input")
+    texto = str(e.value)
+    assert "es una salida, no una entrada" in texto and "Ninguna entrada tiene un nombre parecido" in texto
+    assert "pon MIC_DISPOSITIVO=" in texto and "--listar" in texto
+
+
+def test_la_recomendacion_no_es_un_cable_virtual(pc):
+    with pytest.raises(ErrorAudio) as e:
+        info_dispositivo(pc(), "CABLE Input (VB-Audio Virtual Cable)", "input")
+    assert "VB-Audio" not in str(e.value).split("pon MIC_DISPOSITIVO=")[1]
+
+
+def test_duplex_con_nombres_y_sin_flujo_abre_por_separado_en_la_misma_api(pc):
+    sd = pc(duplex_falla=True)
+
+    async def correr():
+        audio = AudioDuplex("BKD-11 Pro Audio Device", "WD50FBR105")
+        fuente = audio.tramas()
+        await fuente.__anext__()
+        audio.reproducir(24000, bytes(960))
+        await fuente.aclose()
+
+    asyncio.run(correr())
+    assert ("entrada", 8, 2, 48000) in sd.abiertos and ("salida", 6, 2, 48000) in sd.abiertos
+
+
+def test_probar_audio_con_nombres(pc):
+    sd = pc()
+    lineas = []
+    assert probar_audio("BKD-11 Pro Audio Device", "WD50FBR105", imprimir=lineas.append)
+    texto = "\n".join(lineas)
+    assert sd.tocado[0][0] == 6 and "[8]" in texto and "🎧 Dúplex: ✅" in texto
+
+
+def test_probar_audio_con_una_salida_de_microfono_lo_explica(pc):
+    pc()
+    lineas = []
+    assert not probar_audio(2, "WD50FBR105", imprimir=lineas.append)
+    assert f"pon MIC_DISPOSITIVO={MIC}" in "\n".join(lineas)
+
+
+def test_probar_duplex_avisa_si_abre_pero_no_arranca(pc, monkeypatch):
+    real = audio_io._duplex_arranca
+    monkeypatch.setattr(audio_io, "_duplex_arranca", lambda sd, m, a: real(sd, m, a, espera_s=0.01))
+    lineas = []
+    assert not audio_io.probar_duplex(pc(duplex_arranca=set()), 8, 6, imprimir=lineas.append)
+    assert "no pasó audio" in lineas[-1]
+
+
+def test_listar_con_nombres_dice_lo_que_usara(pc, capsys):
+    from client.main import main
+    pc()
+    main(["--listar", "--dispositivo", "BKD-11", "--altavoz", "WD50FBR105"])
+    salida = capsys.readouterr().out
+    assert f"micrófono: [8] {MIC} (Windows WASAPI" in salida and f"altavoz: [6] {TV} (Windows WASAPI" in salida
 
 
 # ------------------------------------------------------------------ comandos

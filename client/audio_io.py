@@ -19,6 +19,7 @@ Salida (la voz del personaje, audio.out):
 Micrófono y altavoz a la vez, con cancelación de eco (lo normal en el PC):
   - AudioDuplex: un solo flujo de entrada y salida a 48 kHz. En cada callback, los 20 ms del micrófono
     llegan emparejados con los 20 ms que se mandaron al altavoz: esa es la referencia del AEC (client/aec.py).
+    Si micrófono o altavoz se dan por nombre, elegir_par() busca la API donde arrancan juntos.
     Si la tarjeta no acepta el flujo dúplex, sigue con Microfono + Altavoz por separado, sin AEC. Si tampoco
     abre el micrófono, lo avisa y reintenta cada REINTENTO_AUDIO_S: el programa no se cae.
 
@@ -27,9 +28,12 @@ probar_audio(): para `python -m client.main --probar-audio`.
 from __future__ import annotations
 
 import asyncio
+import difflib
 import logging
+import re
 import threading
 import time
+import unicodedata
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +50,15 @@ log = logging.getLogger("nix.audio")
 REINTENTO_AUDIO_S = 5.0
 MAX_CANALES = 2                     # para voz basta; algunos dispositivos dicen tener 8 o 16
 PICO_SILENCIO_DB = -50.0            # por debajo, el micrófono llega prácticamente mudo
+VARIABLE = {"input": "MIC_DISPOSITIVO", "output": "ALTAVOZ_DISPOSITIVO"}
+QUE = {"input": "entrada", "output": "salida"}
+OTRO_TIPO = {"input": "output", "output": "input"}
+PRIORIDAD_APIS = ("wasapi", "directsound", "mme")  # primero la de menor latencia; las demás (WDM-KS...), al final
+LARGO_NOMBRE_MME = 31               # MME corta los nombres: «Micrófono (BKD-11 Pro Audio Dev»
+MIN_CORTE_MME = 6                   # lo mínimo de un nombre cortado que debe coincidir con lo pedido
+MIN_PARECIDO = 0.6                  # por debajo, la sugerencia se da como dudosa
+NO_FISICOS = ("cable ", "vb-audio", "asignador de sonido", "controlador primario")  # no se recomiendan
+API_EN_NOMBRE = re.compile(r"[\s,]+(?:windows\s+)?(mme|directsound|wasapi|wdm-ks)$")
 
 
 def ahora_ms() -> int:
@@ -77,19 +90,170 @@ def _sd():
     return sd
 
 
-def info_dispositivo(sd, dispositivo: Optional[int | str], tipo: str) -> InfoDispositivo:
-    """tipo: "input" o "output". `dispositivo` None = el predeterminado de Windows."""
-    que = "entrada" if tipo == "input" else "salida"
-    try:
-        d = sd.query_devices(dispositivo, tipo)
-        api = sd.query_hostapis(d["hostapi"])["name"]
-    except Exception as e:  # noqa: BLE001 - ValueError (no existe), PortAudioError...
-        raise ErrorAudio(f"no encuentro el dispositivo de {que} {dispositivo!r}: {e}") from e
+def _normalizar(texto: str) -> str:
+    """Sin acentos ni mayúsculas y con espacios simples, para comparar nombres."""
+    sin_acentos = "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c))
+    return " ".join(sin_acentos.casefold().split())
+
+
+def _prioridad_api(api: str) -> int:
+    nombre = _normalizar(api)
+    return next((i for i, p in enumerate(PRIORIDAD_APIS) if p in nombre), len(PRIORIDAD_APIS))
+
+
+def _info(sd, d, indice, tipo: str) -> InfoDispositivo:
     maximo = int(d["max_input_channels" if tipo == "input" else "max_output_channels"])
-    if maximo < 1:
-        raise ErrorAudio(f"«{d['name']}» no es un dispositivo de {que}")
-    indice = d.get("index", dispositivo)
-    return InfoDispositivo(indice, d["name"], api, min(maximo, MAX_CANALES), int(d["default_samplerate"]))
+    return InfoDispositivo(indice, d["name"], sd.query_hostapis(d["hostapi"])["name"], min(maximo, MAX_CANALES),
+                           int(d["default_samplerate"]))
+
+
+def _dispositivos(sd, tipo: str) -> list[InfoDispositivo]:
+    """Solo las entradas o solo las salidas, con las APIs preferidas primero."""
+    clave = "max_input_channels" if tipo == "input" else "max_output_channels"
+    lista = [_info(sd, d, d.get("index", i), tipo) for i, d in enumerate(sd.query_devices()) if int(d[clave]) > 0]
+    return sorted(lista, key=lambda info: _prioridad_api(info.api))
+
+
+def _coincide(consulta: str, nombre: str) -> bool:
+    """`consulta` (ya normalizada) está en `nombre`: las palabras, en orden. Como MME corta los nombres, también
+    vale que el final de un nombre cortado sea el principio de la consulta."""
+    n, pos = _normalizar(nombre), 0
+    for palabra in consulta.split():
+        pos = n.find(palabra, pos)
+        if pos < 0:
+            break
+        pos += len(palabra)
+    else:
+        return True
+    if len(nombre) != LARGO_NOMBRE_MME:
+        return False
+    return any(consulta.startswith(n[i:]) for i in range(len(n) - MIN_CORTE_MME + 1))
+
+
+def _ayuda(sd, referencia: str, tipo: str) -> str:
+    """Frase con la entrada o salida más parecida a `referencia`, lista para copiarla al .env."""
+    opciones = _dispositivos(sd, tipo)
+    if not opciones:
+        return f" No hay ninguna {QUE[tipo]} disponible."
+    fisicos = [o for o in opciones if not any(x in _normalizar(o.nombre) for x in NO_FISICOS)]
+    corta = _normalizar(referencia[:LARGO_NOMBRE_MME])     # todos cortados igual: así gana la API preferida
+
+    def parecido(o: InfoDispositivo) -> float:
+        return difflib.SequenceMatcher(None, corta, _normalizar(o.nombre[:LARGO_NOMBRE_MME])).ratio()
+
+    mejor = max(fisicos or opciones, key=parecido)
+    if parecido(mejor) < MIN_PARECIDO:
+        return (f" Ninguna {QUE[tipo]} tiene un nombre parecido; la que más se acerca es «{mejor.nombre}» "
+                f"[{mejor.indice}]: pon {VARIABLE[tipo]}={mejor.nombre} o elige otra con --listar.")
+    return (f" La {QUE[tipo]} correcta más parecida es «{mejor.nombre}» [{mejor.indice}]: "
+            f"pon {VARIABLE[tipo]}={mejor.nombre}")
+
+
+def _por_indice(sd, dispositivo: Optional[int], tipo: str) -> InfoDispositivo:
+    try:
+        # Con un índice, sin pedir tipo: sounddevice rechazaría una salida sin decirnos cuál es y no habría ayuda.
+        d = sd.query_devices(None, tipo) if dispositivo is None else sd.query_devices(dispositivo)
+        info = _info(sd, d, d.get("index", dispositivo), tipo)
+    except Exception as e:  # noqa: BLE001 - ValueError (no existe), PortAudioError...
+        raise ErrorAudio(f"no encuentro el dispositivo de {QUE[tipo]} {dispositivo!r}: {e}") from e
+    if info.canales < 1:
+        raise ErrorAudio(f"{VARIABLE[tipo]}={dispositivo} apunta a «{d['name']}», que es una {QUE[OTRO_TIPO[tipo]]}, "
+                         f"no una {QUE[tipo]}." + _ayuda(sd, d["name"], tipo))
+    return info
+
+
+def _por_nombre(sd, valor: str, tipo: str) -> list[InfoDispositivo]:
+    """Un dispositivo por cada API que tenga ese nombre, buscando solo entre los de `tipo`."""
+    consulta = _normalizar(valor)
+    api_pedida = API_EN_NOMBRE.search(consulta)
+    if api_pedida:
+        consulta = consulta[:api_pedida.start()]
+    try:
+        hallados = [o for o in _dispositivos(sd, tipo) if _coincide(consulta, o.nombre)]
+        contrarios = [] if hallados else [o for o in _dispositivos(sd, OTRO_TIPO[tipo])
+                                          if _coincide(consulta, o.nombre)]
+    except Exception as e:  # noqa: BLE001 - PortAudioError al consultar
+        raise ErrorAudio(f"no pude consultar los dispositivos de audio: {e}") from e
+    if contrarios:
+        raise ErrorAudio(f"{VARIABLE[tipo]}={valor} apunta a «{contrarios[0].nombre}», que es una "
+                         f"{QUE[OTRO_TIPO[tipo]]}, no una {QUE[tipo]}." + _ayuda(sd, contrarios[0].nombre, tipo))
+    if not hallados:
+        raise ErrorAudio(f"no encuentro el dispositivo de {QUE[tipo]} «{valor}»." + _ayuda(sd, consulta, tipo))
+    if api_pedida:
+        en_api = [o for o in hallados if api_pedida.group(1) in _normalizar(o.api)]
+        if not en_api:
+            raise ErrorAudio(f"«{valor}»: esa {QUE[tipo]} no está en {api_pedida.group(1)}; "
+                             f"está en: {', '.join(sorted({o.api for o in hallados}))}")
+        hallados = en_api
+    por_api: dict[str, list[InfoDispositivo]] = {}
+    for o in hallados:
+        por_api.setdefault(o.api, []).append(o)
+    elegidos = []
+    for grupo in por_api.values():
+        exactos = [o for o in grupo if _normalizar(o.nombre) == consulta]
+        if len(exactos or grupo) > 1:                      # podría ser otro aparato: no adivinar
+            nombres = "; ".join(sorted({o.nombre for o in hallados}))
+            raise ErrorAudio(f"«{valor}» coincide con varias {QUE[tipo]}s: {nombres}. Escribe más del nombre en "
+                             f"{VARIABLE[tipo]}.")
+        elegidos.append((exactos or grupo)[0])
+    return elegidos
+
+
+def _opciones(sd, dispositivo: Optional[int | str], tipo: str) -> list[InfoDispositivo]:
+    return _por_nombre(sd, dispositivo, tipo) if isinstance(dispositivo, str) else [_por_indice(sd, dispositivo, tipo)]
+
+
+def info_dispositivo(sd, dispositivo: Optional[int | str], tipo: str) -> InfoDispositivo:
+    """tipo: "input" o "output". `dispositivo` None = el predeterminado de Windows. Un nombre se busca solo entre
+    los de ese tipo y, si está en varias APIs, da el de la preferida (para los dos juntos, elegir_par)."""
+    return _opciones(sd, dispositivo, tipo)[0]
+
+
+def _duplex_arranca(sd, mic: InfoDispositivo, alt: InfoDispositivo, espera_s: float = 1.0) -> Optional[Exception]:
+    """Abre y arranca micrófono y altavoz juntos un momento, en silencio. None si funciona; si no, el error."""
+    llego_audio = threading.Event()
+
+    def callback(_entrada, salida, _frames, _tiempo, _estado):
+        salida[:] = bytes(len(salida))
+        llego_audio.set()
+
+    try:
+        flujo = sd.RawStream(samplerate=AudioDuplex.SR, blocksize=AudioDuplex.BLOQUE,
+                             channels=(mic.canales, alt.canales), dtype="int16", device=(mic.indice, alt.indice),
+                             callback=callback)
+    except Exception as e:  # noqa: BLE001 - PortAudioError, APIs distintas, etc.
+        return e
+    try:
+        flujo.start()
+        if not llego_audio.wait(espera_s):
+            return ErrorAudio(f"abrió, pero no pasó audio en {espera_s:g} s")
+        flujo.stop()
+    except Exception as e:  # noqa: BLE001
+        return e
+    finally:
+        flujo.close()
+    return None
+
+
+def elegir_par(sd, microfono: Optional[int | str],
+               altavoz: Optional[int | str]) -> tuple[InfoDispositivo, InfoDispositivo]:
+    """Micrófono y altavoz que se usarán. Si alguno se dio por nombre, prueba cada API que tengan en común, con la
+    preferida primero, y se queda con la primera donde arrancan en dúplex. Un índice (o el predeterminado) fija
+    su dispositivo: el nombre del otro se busca en su misma API. ErrorAudio si alguno no existe o es del tipo
+    equivocado."""
+    mics, alts = _opciones(sd, microfono, "input"), _opciones(sd, altavoz, "output")
+    if not (isinstance(microfono, str) or isinstance(altavoz, str)):
+        return mics[0], alts[0]
+    pares = sorted(((m, a) for m in mics for a in alts if m.api == a.api), key=lambda par: _prioridad_api(par[0].api))
+    for mic, alt in pares:
+        error = _duplex_arranca(sd, mic, alt)
+        if error is None:
+            log.info("🎚️ API elegida para micrófono y altavoz: %s", mic.api)
+            return mic, alt
+        log.info("🎚️ en %s no abren juntos: %s", mic.api, error)
+    log.warning("⚠️ micrófono y altavoz no abren en dúplex en ninguna API común (%s).",
+                ", ".join(m.api for m, _ in pares) or "no tienen ninguna")
+    return pares[0] if pares else (mics[0], alts[0])
 
 
 # ---------------------------------------------------------------------------------------- conversiones
@@ -445,8 +609,7 @@ class AudioDuplex:
 
     async def _tramas(self) -> AsyncIterator[bytes]:
         sd = _sd()
-        mic = info_dispositivo(sd, self.microfono, "input")
-        alt = info_dispositivo(sd, self.altavoz, "output")
+        mic, alt = elegir_par(sd, self.microfono, self.altavoz)
         if mic.api != alt.api:
             log.warning("⚠️ el micrófono es de %s y el altavoz de %s: PortAudio casi nunca los abre juntos. "
                         "Para tener cancelación de eco elige los dos de la misma API (ver --listar).",
@@ -473,8 +636,8 @@ class AudioDuplex:
             log.warning("🔇 no pude abrir micrófono y altavoz juntos (%s): los abro por separado, sin cancelación "
                         "de eco. Con audífonos da igual; con bocinas, Nix puede oírse a sí misma.", e)
             if self.separado is None:
-                self.separado = Altavoz(self.altavoz)
-            async for trama in Microfono(self.microfono).tramas():
+                self.separado = Altavoz(alt.indice)
+            async for trama in Microfono(mic.indice).tramas():
                 yield trama
             return
 
@@ -547,10 +710,9 @@ def probar_duplex(sd, microfono, altavoz, imprimir: Callable[[str], None] = prin
         alt = info_dispositivo(sd, altavoz, "output")
         if mic.api != alt.api:
             imprimir(f"⚠️ micrófono ({mic.api}) y altavoz ({alt.api}) son de APIs distintas")
-        flujo = sd.RawStream(samplerate=AudioDuplex.SR, blocksize=AudioDuplex.BLOQUE,
-                             channels=(mic.canales, alt.canales), dtype="int16", device=(mic.indice, alt.indice),
-                             callback=lambda *_: None)
-        flujo.close()
+        error = _duplex_arranca(sd, mic, alt)
+        if error is not None:
+            raise error
     except Exception as e:  # noqa: BLE001
         imprimir(f"🎧 Dúplex: ⚠️ no abre juntos ({e}). Nix funciona igual, pero sin cancelación de eco: "
                  "usa audífonos o elige micrófono y altavoz de la misma API.")
@@ -578,9 +740,14 @@ def probar_audio(microfono=None, altavoz=None, todos: bool = False,
         imprimir(f"\nFuncionan — salidas: {funcionan['salida'] or 'ninguna'} | "
                  f"entradas con sonido: {funcionan['entrada'] or 'ninguna'}")
         return bool(funcionan["salida"] and funcionan["entrada"])
+    try:
+        mic, alt = elegir_par(sd, microfono, altavoz)
+        microfono, altavoz = mic.indice, alt.indice
+    except ErrorAudio:
+        pass                                             # cada prueba de abajo dice cuál está mal y por qué
     salida = probar_salida(sd, altavoz, imprimir)
     entrada = probar_entrada(sd, microfono, imprimir)
     probar_duplex(sd, microfono, altavoz, imprimir)
     imprimir("\n" + ("✅ Listo: micrófono y altavoz funcionan." if salida and entrada else
-                     "❌ Algo falló: revisa MIC_DISPOSITIVO / ALTAVOZ_DISPOSITIVO en el .env (números de --listar)."))
+                     "❌ Algo falló: revisa MIC_DISPOSITIVO / ALTAVOZ_DISPOSITIVO en el .env (nombres o números de --listar)."))
     return salida and entrada

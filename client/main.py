@@ -24,8 +24,8 @@ from pathlib import Path
 from websockets.exceptions import ConnectionClosed
 
 from client.barge import BargeCliente, Envio, Reproduccion
-from client.audio_io import (Altavoz, ArchivoWav, AudioDuplex, ErrorAudio, GrabadorWav, info_dispositivo,
-                             probar_audio)
+from client.audio_io import (Altavoz, ArchivoWav, AudioDuplex, ErrorAudio, GrabadorWav, elegir_par,
+                             info_dispositivo, probar_audio)
 from client.camara import Presencia
 from client.indicador import Indicador
 from client.screen_capture import EXCLUIDAS_POR_DEFECTO, Atajos, CapturaPantalla
@@ -249,6 +249,11 @@ def listar(microfono=None, altavoz=None) -> None:
         print(f"❌ no pude listar los dispositivos de audio: {e}")
         return
     print("\nNix usará (MIC_DISPOSITIVO / ALTAVOZ_DISPOSITIVO en el .env; vacío = el predeterminado):")
+    try:
+        mic, alt = elegir_par(sd, microfono, altavoz)
+        microfono, altavoz = mic.indice, alt.indice
+    except ErrorAudio:
+        pass                                             # el bucle de abajo dice cuál está mal y por qué
     for nombre, valor, tipo in (("micrófono", microfono, "input"), ("altavoz", altavoz, "output")):
         try:
             print(f"  {nombre}: {info_dispositivo(sd, valor, tipo)}")
